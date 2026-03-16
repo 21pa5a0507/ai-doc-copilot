@@ -1,18 +1,23 @@
-def chunk_text(text, chunk_size=500, overlap=50):
-    
+import re
+
+# make this a package module; imports will use relative paths if needed
+
+def chunk_text(text, chunk_size=400):
+
+    sentences = re.split(r'(?<=[.!?]) +', text)
+
     chunks = []
-    start = 0
+    current_chunk = ""
 
-    while(start<len(text)):
-        
-        end = start+chunk_size
+    for sentence in sentences:
 
-        chunk = text[start:end]
+        if len(current_chunk) + len(sentence) < chunk_size:
+            current_chunk += " " + sentence
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = sentence
 
-        chunks.append(chunk)
+    if current_chunk:
+        chunks.append(current_chunk.strip())
 
-        start += chunk_size - overlap
-    
     return chunks
-
-

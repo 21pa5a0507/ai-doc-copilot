@@ -1,19 +1,11 @@
-import google.generativeai as genai
-import os
-from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
 
-load_dotenv()
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
 
 def get_embending(text):
+    # SentenceTransformer uses encode() for embeddings
+    emb = model.encode(text)
 
-    for model in genai.list_models():
-        # We filter for models that support 'embedContent'
-        if 'embedContent' in model.supported_generation_methods:
-            print(f"Model Name: {model.name}")
-            print(f"Description: {model.description}\n")
-    result = genai.embed_content(model="models/gemini-embedding-001", content=text)
-
-    return result["embedding"]
+    # return plain Python list for compatibility with FAISS vector handling
+    return emb.tolist() if hasattr(emb, 'tolist') else list(emb)

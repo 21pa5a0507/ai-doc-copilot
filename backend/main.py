@@ -1,32 +1,37 @@
+import asyncio
+import sys
+
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from fastapi import FastAPI
-import google.generativeai as genai
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-genai.configure(api_key=GEMINI_API_KEY)
-
-
-model = genai.GenerativeModel("gemini-2.5-flash")
+from rag.answer_generator import generate_answer
+from rag.embendings import get_embending as embed_text
+from rag.vector_store import VectorStore
+from rag.scraper import scrap_website
 
 app = FastAPI()
 
-@app.get("/")
-def home():
-    return {"message": "Welcome to the AI Doc Copilot API!"}
+vector_store = VectorStore()
+
+# Run scraper once when server starts
+@app.on_event("startup")
+async def startup_event():
+    await scrap_website(vector_store)
+    print("Vectors stored:", vector_store.index.ntotal)
+
 
 @app.get("/ask")
-def ask_ai(question: str):
-    try:
-        response =model.generate_content(question)
-        return {
-            "question": question,
-            "answer": response.text
-        }
-    except Exception as e:
-        return {
-            "error": str(e)
-        }
+def ask(question: str):
+
+    query_embedding = embed_text(question)
+
+    chunks = vector_store.search(query_embedding, question)
+
+    answer = generate_answer(question, chunks)
+
+    return {
+        "question": question,
+        "chunks": chunks,
+        "answer": answer
+    }
