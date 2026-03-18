@@ -1,23 +1,60 @@
 import re
 
-# make this a package module; imports will use relative paths if needed
+def split_paragraphs(text):
+    return [p.strip() for p in re.split(r'\n+', text) if p.strip()]
 
-def chunk_text(text, chunk_size=400):
+def split_sentences(text):
+    return re.split(r'(?<=[.!?])\s+', text)
 
-    sentences = re.split(r'(?<=[.!?]) +', text)
+def get_overlap_text(text, overlap_words=30):
+    words = text.split()
+    return " ".join(words[-overlap_words:]) if len(words) > overlap_words else text
+
+def clean_text(text):
+    return re.sub(r'\s+', ' ', text).strip()
+
+def chunk_text(text, chunk_size=400, overlap_words=30, min_chunk_size=80):
+    text = clean_text(text)
+    paragraphs = split_paragraphs(text)
 
     chunks = []
     current_chunk = ""
 
-    for sentence in sentences:
+    for para in paragraphs:
 
-        if len(current_chunk) + len(sentence) < chunk_size:
-            current_chunk += " " + sentence
+        # ✅ Keep small paragraphs (merge instead of removing)
+        if len(para) < 40:
+            current_chunk += " " + para
+            continue
+
+        # ✅ Handle large paragraphs
+        if len(para) > chunk_size:
+            sentences = split_sentences(para)
+
+            for sentence in sentences:
+                if len(current_chunk) + len(sentence) <= chunk_size:
+                    current_chunk += " " + sentence
+                else:
+                    if len(current_chunk.strip()) >= min_chunk_size:
+                        chunks.append(current_chunk.strip())
+
+                    overlap_text = get_overlap_text(current_chunk, overlap_words)
+                    current_chunk = overlap_text + " " + sentence
+
+            continue
+
+        # ✅ Normal case
+        if len(current_chunk) + len(para) <= chunk_size:
+            current_chunk += " " + para
         else:
-            chunks.append(current_chunk.strip())
-            current_chunk = sentence
+            if len(current_chunk.strip()) >= min_chunk_size:
+                chunks.append(current_chunk.strip())
 
-    if current_chunk:
+            overlap_text = get_overlap_text(current_chunk, overlap_words)
+            current_chunk = overlap_text + " " + para
+
+    # ✅ Final chunk
+    if len(current_chunk.strip()) >= min_chunk_size:
         chunks.append(current_chunk.strip())
 
     return chunks

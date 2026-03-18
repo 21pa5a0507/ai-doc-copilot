@@ -81,14 +81,38 @@ async def scrape_all(urls):
     return docs
 
 """ <================= Chunking docs =================> """
+
+def is_valid_chunk(text):
+    text_lower = text.lower()
+
+    blacklist = [
+        "next", "previous", "edit on github",
+        "table of contents", "navigation",
+        "fastapi", "release notes"
+    ]
+
+    if any(word in text_lower for word in blacklist):
+        return False
+
+    return True
+
 def chunking_docs(docs):
     chunked_data = []
+
+    seen = set()   # deduplication
 
     for doc in docs:
 
         chunks = chunk_text(doc["content"])
 
         for chunk in chunks:
+            if not is_valid_chunk(chunk):
+                continue
+
+            key = (doc["url"], chunk)
+            if key in seen:
+                continue
+            seen.add(key)
 
             chunked_data.append({
                 "url": doc["url"],
@@ -101,11 +125,17 @@ def chunking_docs(docs):
 
 """ <================= Embedding docs =================> """
 
-def embedding_docs(docs,store=None):
-    for doc in docs:
-        if doc["content"] and len(doc["content"]) > 0:
-            emb = get_embending(doc["content"])
-            store.add(emb, doc)
+def embedding_docs(docs, store):
+
+    texts = [doc["content"] for doc in docs]
+
+    print("🔄 Generating embeddings in batch...")
+    embeddings = get_embending(texts)   # MUST support batch
+
+    for doc, emb in zip(docs, embeddings):
+        store.add(emb, doc)
+
+    print("✅ Embeddings stored")
 
     return store
 
@@ -119,9 +149,9 @@ async def scrap_website(store):
         docs = json.load(f)
 
     chunked_docs = chunking_docs(docs)
-    search_store = embedding_docs(chunked_docs, store)
-    store.update_bm25()
-    return search_store
+    store = embedding_docs(chunked_docs, store)
+    store.build_bm25()
+    return store
 
 # def extract_links_from_html(html):
 #     """Extract all href links from HTML"""
