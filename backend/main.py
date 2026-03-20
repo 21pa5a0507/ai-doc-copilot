@@ -9,8 +9,23 @@ from rag.answer_generator import generate_answer
 from rag.embendings import get_embending as embed_text
 from rag.vector_store import VectorStore
 from rag.scraper import scrap_website
+from fastapi.middleware.cors import CORSMiddleware
+
+from pydantic import BaseModel
+
+class Query(BaseModel):
+    question: str
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 vector_store = VectorStore()
 
@@ -21,8 +36,9 @@ async def startup_event():
     print("Vectors stored:", vector_store.index.ntotal)
 
 
-@app.get("/ask")
-def ask(question: str):
+@app.post("/ask")
+def ask(query: Query):
+    question = query.question
 
     query_embedding = embed_text(question)
 
