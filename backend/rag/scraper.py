@@ -1,4 +1,5 @@
 from crawl4ai import AsyncWebCrawler
+from urllib.parse import urljoin, urlparse
 import asyncio
 from collections import deque
 from bs4 import BeautifulSoup
@@ -12,73 +13,190 @@ from rag.embendings import get_embending
 from rag.vector_store import VectorStore
 
 SITEMAP_URL = "https://fastapi.tiangolo.com/sitemap.xml"
-docs = []
+BASE_DOMAIN = "fastapi.tiangolo.com"
+MAX_DEPTH = 3
 
-def get_urls_from_sitemap():
-    """Fetch all documentation URLs from sitemap"""
 
-    print("🔎 Fetching sitemap...")
+# -----------------------------
+# 1. GET INITIAL URLS
+# -----------------------------
+def get_all_urls():
+    res = requests.get(SITEMAP_URL)
+    soup = BeautifulSoup(res.text, "xml")
 
-    response = requests.get(SITEMAP_URL)
-    soup = BeautifulSoup(response.text, "xml")
+    return [loc.text.strip() for loc in soup.find_all("loc")]
 
-    urls = []
 
-    for loc in soup.find_all("loc"):
-        urls.append(loc.text.strip())
+# -----------------------------
+# 2. EXTRACT LINKS FROM PAGE
+# -----------------------------
+def extract_links(html, base_url):
+    soup = BeautifulSoup(html, "html.parser")
+    links = set()
 
-    print(f"✅ Found {len(urls)} URLs")
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
 
-    return urls
+        full_url = urljoin(base_url, href)
+        parsed = urlparse(full_url)
 
-def normalize_url(url):
+        if BASE_DOMAIN in parsed.netloc:
+            clean_url = full_url.split("#")[0].rstrip("/")
+            links.add(clean_url)
+
+    return links
+
+
+# -----------------------------
+# 3. EXTRACT MAIN CONTENT
+# -----------------------------
+def extract_main_content(html):
+    soup = BeautifulSoup(html, "html.parser")
+
+    main = soup.find("main") or soup.find("article")
+    if not main:
+        return None
+
+    for tag in main.find_all(["nav", "footer", "aside", "script", "style"]):
+        tag.decompose()
+
+    return main
+
+
+# -----------------------------
+# 4. HEADING CHUNKING
+# -----------------------------
+def chunk_by_headings(main_tag, page_title=""):
+    chunks = []
+
+    current_heading = page_title
+    current_content = []
+
+    for tag in main_tag.find_all(["h1", "h2", "h3", "p", "li"]):
+
+        if tag.name in ["h1", "h2", "h3"]:
+            if current_content:
+                chunks.append({
+                    "title": current_heading,
+                    "content": " ".join(current_content)
+                })
+                current_content = []
+
+            current_heading = tag.get_text(strip=True)
+
+        else:
+            text = tag.get_text(strip=True)
+            if text:
+                current_content.append(text)
+
+    if current_content:
+        chunks.append({
+            "title": current_heading,
+            "content": " ".join(current_content)
+        })
+
+    return chunks
+
+def normalize_url(url: str) -> str:
+    url = url.split("#")[0]
     url = url.split("?")[0]
     return url.rstrip("/")
 
-async def scrape_page(crawler, url):
-    """Scrape a single page"""
+def is_valid_url(url: str) -> bool:
+    # Normalize quick checks
+    url_lower = url.lower()
 
-    try:
-        print(f"🔄 Scraping: {url}")
+    # ❌ Skip obvious junk
+    if any(x in url_lower for x in [
+        "#", "mailto:", "javascript:", "?",
+        "twitter", "facebook", "linkedin"
+    ]):
+        return False
 
-        result = await crawler.arun(url=url)
+    # ❌ Block unwanted sections
+    blocked_paths = [
+        "/search",
+        "/tag",
+        "/category",
+        "/blog",
+        "/news",
+        "/release-notes",
+        "/sponsors",
+        "/help",
+    ]
 
-        if not result:
-            return None
+    if any(path in url_lower for path in blocked_paths):
+        return False
 
-        content = result.markdown
+    # ✅ Allow only real documentation sections
+    allowed_paths = [
+        "/tutorial/",
+        "/advanced/",
+        "/deployment/",
+        "/python-types/",
+        "/async/",
+        "/security/",
+    ]
 
-        if not content or len(content) < 200:
-            return None
+    return any(path in url_lower for path in allowed_paths)
+# -----------------------------
+# 5. BFS CRAWLER WITH DEPTH
+# -----------------------------
+async def crawl_with_depth(start_urls):
+    visited = set()
+    queue = deque([(url, 0) for url in start_urls])
 
-        return {
-            "url": url,
-            "title": result.metadata.get("title") if result.metadata else "",
-            "content": clean_text(content)
-        }
-
-    except Exception as e:
-        print(f"❌ Error scraping {url}: {e}")
-        return None
-
-async def scrape_all(urls):
-
-    docs = []
+    all_docs = []
 
     async with AsyncWebCrawler() as crawler:
 
-        tasks = [
-            scrape_page(crawler, url)
-            for url in urls
-        ]
+        while queue:
+            url, depth = queue.popleft()
 
-        results = await asyncio.gather(*tasks)
+            if url in visited or depth > MAX_DEPTH:
+                continue
 
-        for r in results:
-            if r:
-                docs.append(r)
+            visited.add(url)
 
-    return docs
+            try:
+                result = await crawler.arun(url=url)
+
+                if not result or not result.html:
+                    continue
+
+                html = result.html
+
+                # -------- CONTENT --------
+                soup = BeautifulSoup(html, "html.parser")
+                title = soup.title.string.strip() if soup.title and soup.title.string else ""
+
+                main = extract_main_content(html)
+                if main:
+                    chunks = chunk_by_headings(main, title)
+
+                    for c in chunks:
+                        content = clean_text(c["content"])
+                        if len(content) > 50:
+                            all_docs.append({
+                                "url": url,
+                                "title": c["title"],
+                                "content": content
+                            })
+
+                # -------- LINKS --------
+                links = extract_links(html, url)
+
+                for link in links:
+                    print(f"Visiting: {url} | Depth: {depth} | Total: {len(visited)}")
+                    link = normalize_url(link)
+
+                    if link not in visited and is_valid_url(link):
+                        queue.append((link, depth + 1))
+
+            except Exception as e:
+                print(f"❌ Error: {url} -> {e}")
+
+    return all_docs
 
 """ <================= Chunking docs =================> """
 
@@ -140,13 +258,21 @@ def embedding_docs(docs, store):
     return store
 
 async def scrap_website(store):
+    print("🚀 Getting initial URLs...")
+    start_urls = get_all_urls()
 
-    # urls = get_urls_from_sitemap()
+    print(f"✅ Initial URLs: {len(start_urls)}")
 
-    # docs = await scrape_all(urls)
+    print(f"🚀 Crawling with depth={MAX_DEPTH}...")
+    docs = await crawl_with_depth(start_urls)
 
-    with open("fastapi_docs.json", "r", encoding="utf-8") as f:
-        docs = json.load(f)
+    print(f"✅ Total chunks: {len(docs)}")
+
+    with open("fastapi_docs.json", "w", encoding="utf-8") as f:
+        json.dump(docs, f, indent=2, ensure_ascii=False)
+
+    # with open("fastapi_docs.json", "r", encoding="utf-8") as f:
+    #     docs = json.load(f)
 
     chunked_docs = chunking_docs(docs)
     store = embedding_docs(chunked_docs, store)

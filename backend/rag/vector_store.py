@@ -37,7 +37,7 @@ class Reranker:
 # -------------------------------
 class VectorStore:
 
-    def __init__(self, dimension=384):
+    def __init__(self, dimension=768):
         self.dimension = dimension
 
         # Cosine similarity

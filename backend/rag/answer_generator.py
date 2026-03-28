@@ -13,13 +13,21 @@ def generate_answer(question, chunks):
     context = "\n\n".join([f"Title: {chunk['title']}\nContent: {chunk['content']}" for chunk in chunks])
 
     prompt = f"""
-    You are a helpful AI assistant.
-    Use the provided context to answer the question.
-    if the context is insufficient, you can use your general knowledge.
+    You are a strict AI assistant.
+
+    Answer ONLY from the provided context.
+    Do NOT use your own knowledge.
+
+    If the answer is not clearly present in the context, say:
+    "Answer not found in the provided documentation."
+
     Context:
     {context}
-    Question: {question}
-    Answer clearly and concisely.
+
+    Question:
+    {question}
+
+    Answer:
     """
 
     response = model.generate_content(prompt)

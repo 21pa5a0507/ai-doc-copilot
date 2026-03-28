@@ -1,47 +1,30 @@
 import re
-from bs4 import BeautifulSoup
-import markdown2
 
-
-def clean_text(text):
+def clean_text(text: str) -> str:
     if not text:
         return ""
 
-    # Convert Markdown to HTML before plain text extraction
-    html = markdown2.markdown(text)
-    soup = BeautifulSoup(html, "lxml")
+    # Normalize whitespace
+    text = re.sub(r"\s+", " ", text)
 
-    # Remove script/style and navigation boilerplate
-    for tag in soup(["script", "style", "nav", "footer", "header"]):
-        tag.decompose()
+    # Fix spacing issues
+    text = text.replace(" .", ".").replace(" ,", ",")
 
-    plain = soup.get_text(" ")
+    # Remove invisible characters
+    text = text.replace("\xa0", " ")
 
-    # Normalize whitespace and remove common artifacts
-    plain = re.sub(r"\s+", " ", plain).strip()
-
-    # Remove inline code markers, excessive headers or lists markers
-    plain = re.sub(r"`([^`]+)`", r"\1", plain)
-    plain = re.sub(r"\*\*|\*|__", "", plain)
-
-    # Remove common junk tokens from docs scraping
+    # Optional: remove simple junk phrases
     junk_patterns = [
-        r"\btheme auto light dark\b",
         r"\btable of contents\b",
-        r"\bnavigation\b",
         r"\bprevious\b",
         r"\bnext\b",
-        r"\bedit this page\b",
-        r"\bgithub\b",
-        r"\* \* \*", r"^-{3,}$"
+        r"\bedit this page\b"
     ]
 
-    for p in junk_patterns:
-        plain = re.sub(p, "", plain, flags=re.I)
+    for pattern in junk_patterns:
+        text = re.sub(pattern, "", text, flags=re.I)
 
-    plain = plain.replace("✨", "")
+    # Final cleanup
+    text = re.sub(r"\s+", " ", text).strip()
 
-    # Final trim and collapse whitespace
-    plain = re.sub(r"\s+", " ", plain).strip()
-
-    return plain
+    return text
