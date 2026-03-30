@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 import json
 import re
 import requests
-
+from pathlib import Path
 from rag.cleaner import clean_text
 from rag.chunker import chunk_text
 from rag.embendings import get_embending
@@ -66,7 +66,7 @@ def extract_main_content(html):
 # -----------------------------
 # 4. HEADING CHUNKING
 # -----------------------------
-def chunk_by_headings(main_tag, page_title=""):
+def chunk_by_headings(main_tag, page_title="", url=""):
     chunks = []
 
     current_heading = page_title
@@ -78,7 +78,8 @@ def chunk_by_headings(main_tag, page_title=""):
             if current_content:
                 chunks.append({
                     "title": current_heading,
-                    "content": " ".join(current_content)
+                    "content": " ".join(current_content),
+                    "url": url
                 })
                 current_content = []
 
@@ -172,7 +173,7 @@ async def crawl_with_depth(start_urls):
 
                 main = extract_main_content(html)
                 if main:
-                    chunks = chunk_by_headings(main, title)
+                    chunks = chunk_by_headings(main, title, url)
 
                     for c in chunks:
                         content = clean_text(c["content"])
@@ -206,7 +207,6 @@ def is_valid_chunk(text):
     blacklist = [
         "next", "previous", "edit on github",
         "table of contents", "navigation",
-        "fastapi", "release notes"
     ]
 
     if any(word in text_lower for word in blacklist):
@@ -218,16 +218,16 @@ def chunking_docs(docs):
     chunked_data = []
 
     seen = set()   # deduplication
-
     for doc in docs:
+        cleaned = clean_text(doc["content"])
+        sub_chunks = chunk_text(cleaned)
 
-        chunks = chunk_text(doc["content"])
-
-        for chunk in chunks:
+        for chunk in sub_chunks:
             if not is_valid_chunk(chunk):
                 continue
 
-            key = (doc["url"], chunk)
+            # Stable dedup key (url + content hash, not object id)
+            key = doc["url"] + "||" + chunk
             if key in seen:
                 continue
             seen.add(key)
@@ -235,8 +235,10 @@ def chunking_docs(docs):
             chunked_data.append({
                 "url": doc["url"],
                 "title": doc["title"],
-                "content": chunk
+                "content": chunk,
             })
+
+    print(f"✅ Total clean chunks after dedup: {len(chunked_data)}")
     return chunked_data
 
 """ <================= End of chunking docs =================> """
@@ -257,129 +259,35 @@ def embedding_docs(docs, store):
 
     return store
 
-async def scrap_website(store):
-    print("🚀 Getting initial URLs...")
-    start_urls = get_all_urls()
+async def scrap_website(store, json_cache = "fastapi_docs.json"):
+    cache_path = Path(json_cache)
 
-    print(f"✅ Initial URLs: {len(start_urls)}")
+    if cache_path.exists():
+         with open(cache_path, "r", encoding="utf-8") as f:
+            docs = json.load(f)
+         print(f"✅ Loaded {len(docs)} documents from cache.")
+    else:
+        docs = []
 
-    print(f"🚀 Crawling with depth={MAX_DEPTH}...")
-    docs = await crawl_with_depth(start_urls)
+        print("🚀 Getting initial URLs...")
+        start_urls = get_all_urls()
 
-    print(f"✅ Total chunks: {len(docs)}")
+        print(f"✅ Initial URLs: {len(start_urls)}")
 
-    with open("fastapi_docs.json", "w", encoding="utf-8") as f:
-        json.dump(docs, f, indent=2, ensure_ascii=False)
+        print(f"🚀 Crawling with depth={MAX_DEPTH}...")
+        docs = await crawl_with_depth(start_urls)
 
-    # with open("fastapi_docs.json", "r", encoding="utf-8") as f:
-    #     docs = json.load(f)
+        print(f"✅ Total chunks: {len(docs)}")
+
+        with open("fastapi_docs.json", "w", encoding="utf-8") as f:
+            json.dump(docs, f, indent=2, ensure_ascii=False)
+
+
 
     chunked_docs = chunking_docs(docs)
     store = embedding_docs(chunked_docs, store)
     store.build_bm25()
     return store
-
-# def extract_links_from_html(html):
-#     """Extract all href links from HTML"""
-#     if not html:
-#         return []
-#     # Find all href attributes
-#     links = re.findall(r'href=["\'](.*?)["\']', html)
-#     return links
-
-# async def scrap_website():
-#     async with AsyncWebCrawler() as crawler:
-
-#         while queue:
-#             url, depth = queue.popleft()
-#             url = normalize_url(url)
-#             if depth > MAX_DEPTH:
-#                 continue
-#             if url in visited_urls:
-#                 continue
-#             visited_urls.add(url)
-#             try:
-#                 print(f"\n🔄 Crawling: {url} (Depth: {depth})")
-#                 result = await crawler.arun(url=url, crawl_links=True)
-#                 docs.append({
-#                     "url":url,
-#                     "content":result.markdown
-#                 })
-                
-#                 # Try multiple ways to get links
-#                 all_links = set()
-                
-#                 # Method 1: From result.links
-#                 if result.links:
-#                     print(f"  ✓ Found {len(result.links)} links in result.links")
-#                     all_links.update(result.links)
-                
-#                 # Method 2: From raw HTML
-#                 if hasattr(result, 'html') and result.html:
-#                     html_links = extract_links_from_html(result.html)
-#                     print(f"  ✓ Found {len(html_links)} links in HTML")
-#                     all_links.update(html_links)
-                
-#                 print(f"  Total unique links found: {len(all_links)}")
-                
-#                 for link in all_links:
-#                     if not link:
-#                         continue
-#                     if isinstance(link, dict):
-#                         href = link.get("href")
-#                     else:
-#                         href = link
-                    
-#                     if not href:
-#                         continue
-                    
-#                     if not href.startswith(("http://", "https://")):
-#                         continue
-                    
-#                     normalized_link = normalize_url(href)
-#                     if normalized_link not in visited_urls:
-#                         queue.append((normalized_link, depth+1))
-                        
-#             except Exception as e:
-#                 print(f"❌ Error scraping {url}: {e}")
-#         with open("mdm_docs.json","w") as f:
-#             json.dump(docs, f, indent=2)
-#         print(f"\n✅ Scraping complete! Saved {len(docs)} documents to mdm_docs.json")
-
-
-
-        # raw_text = result.markdown
-        # if not raw_text:
-        #     print(raw_text)
-        #     raw_text = " "
-        
-        # cleaned = clean_text(raw_text)
-
-        # if len(cleaned) > 200:
-        #     chunks = chunk_text(cleaned)
-        # else:        
-        #     chunks = chunk_text(cleaned)
-
-        # store = store
-
-        # for chunk in chunks:
-        #     emb = get_embending(chunk)
-        #     print(type(emb))
-        #     print(len(emb))
-        #     store.add(emb,chunk)
-        
-        # query = "what is python?"
-
-        # query_embedding = get_embending(query)
-
-        # results = store.search(query_embedding)
-
-        # print("\nSearch Results:\n")
-
-        # for r in results:
-        #     print("-", r[:200])
-        
-        # return chunks
 
 
 if __name__ == "__main__":

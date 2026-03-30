@@ -1,30 +1,81 @@
 import re
+from bs4 import BeautifulSoup
 
-def clean_text(text: str) -> str:
-    if not text:
+
+def clean_text(raw_html: str) -> str:
+    if not raw_html:
         return ""
 
-    # Normalize whitespace
-    text = re.sub(r"\s+", " ", text)
+    # -----------------------------
+    # 1. Parse HTML
+    # -----------------------------
+    soup = BeautifulSoup(raw_html, "html.parser")
 
-    # Fix spacing issues
-    text = text.replace(" .", ".").replace(" ,", ",")
+    # -----------------------------
+    # 2. Remove unwanted tags
+    # -----------------------------
+    for tag in soup([
+        "script", "style", "nav", "footer", "header",
+        "aside", "noscript"
+    ]):
+        tag.decompose()
 
-    # Remove invisible characters
-    text = text.replace("\xa0", " ")
+    # -----------------------------
+    # 3. Get visible text
+    # -----------------------------
+    text = soup.get_text(separator="\n")
 
-    # Optional: remove simple junk phrases
+    # -----------------------------
+    # 4. Remove common UI junk
+    # -----------------------------
     junk_patterns = [
-        r"\btable of contents\b",
-        r"\bprevious\b",
-        r"\bnext\b",
-        r"\bedit this page\b"
+        r"Table of contents",
+        r"Search",
+        r"Navigation",
+        r"Menu",
+        r"Previous",
+        r"Next",
+        r"Edit on GitHub",
+        r"Open in Colab",
+        r"FastAPI documentation",
+        r"GitHub",
+        r"Release Notes",
+        r"About",
+        r"Resources",
+        r"Skip to content"
     ]
 
     for pattern in junk_patterns:
-        text = re.sub(pattern, "", text, flags=re.I)
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
 
-    # Final cleanup
-    text = re.sub(r"\s+", " ", text).strip()
+    # -----------------------------
+    # 5. Remove repeated words (e.g., "your your your")
+    # -----------------------------
+    text = re.sub(r"\b(\w+)( \1\b)+", r"\1", text)
+
+    # -----------------------------
+    # 6. Remove excessive symbols / noise
+    # -----------------------------
+    text = re.sub(r"[^\w\s.,:/@()-]", " ", text)
+
+    # -----------------------------
+    # 7. Normalize whitespace
+    # -----------------------------
+    text = re.sub(r"\n\s*\n+", "\n\n", text)  # collapse empty lines
+    text = re.sub(r"[ \t]+", " ", text)       # collapse spaces
+    text = text.strip()
+
+    # -----------------------------
+    # 8. Remove very short lines
+    # -----------------------------
+    lines = text.split("\n")
+    cleaned_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if len(line) > 40:   # threshold (important!)
+            cleaned_lines.append(line)
+
+    text = "\n".join(cleaned_lines)
 
     return text

@@ -31,157 +31,149 @@ class Reranker:
 
         return [chunk for chunk, _ in ranked[:top_k]]
 
-
-# -------------------------------
-# Vector Store
-# -------------------------------
 class VectorStore:
+    def __init__(self, dim=384):
+        # FAISS index (cosine similarity using inner product)
+        self.index = faiss.IndexFlatIP(dim)
 
-    def __init__(self, dimension=768):
-        self.dimension = dimension
+        # Stored data
+        self.chunks = []
+        self.embeddings = []
 
-        # Cosine similarity
-        self.index = faiss.IndexFlatIP(dimension)
-
-        self.text_chunks = []
+        # BM25
         self.tokenized_chunks = []
-
         self.bm25 = None
         self.reranker = Reranker()
-
-        # simple stopwords
-        self.stopwords = {"the", "is", "and", "in", "to", "of", "a", "for"}
-
-    # -------------------------------
-    # Utils
-    # -------------------------------
-    def normalize(self, vec):
-        vec = np.array(vec, dtype="float32")
-        norm = np.linalg.norm(vec)
-        return vec / (norm + 1e-10)
-
-    def tokenize(self, text):
-        words = re.findall(r"\w+", text.lower())
-        return [w for w in words if w not in self.stopwords]
-
-    def normalize_scores(self, results):
-        if not results:
-            return []
-
-        scores = [score for _, score in results]
-        min_s, max_s = min(scores), max(scores)
-
-        return [
-            (chunk, (score - min_s) / (max_s - min_s + 1e-6))
-            for chunk, score in results
-        ]
-
-    # -------------------------------
-    # Add Data
-    # -------------------------------
+    # -----------------------------
+    # ADD DATA
+    # -----------------------------
     def add(self, embedding, chunk):
-        """
-        chunk = {
-            "title": ...,
-            "content": ...,
-            "url": ...
-        }
-        """
+        embedding = np.array(embedding).astype("float32")
 
-        if len(embedding) != self.dimension:
-            raise ValueError("Embedding dimension mismatch")
+        # Normalize for cosine similarity
+        embedding = embedding / np.linalg.norm(embedding)
 
-        vector = self.normalize(embedding).reshape(1, -1)
-        self.index.add(vector)
+        self.index.add(np.array([embedding]))
 
-        self.text_chunks.append(chunk)
+        self.embeddings.append(embedding)
+        self.chunks.append(chunk)
 
-        tokens = self.tokenize(chunk["content"])
+        # Tokenize for BM25
+        tokens = chunk["content"].lower().split()
         self.tokenized_chunks.append(tokens)
 
+    # -----------------------------
+    # BUILD BM25 (call AFTER all data added)
+    # -----------------------------
     def build_bm25(self):
+        if not self.tokenized_chunks:
+            print("⚠️ No chunks for BM25")
+            return
+
         self.bm25 = BM25Okapi(self.tokenized_chunks)
+        print(f"✅ BM25 built on {len(self.tokenized_chunks)} chunks")
 
-    # -------------------------------
-    # Searches
-    # -------------------------------
-    def vector_search(self, embedding, k=15):
-        if self.index.ntotal == 0:
-            return []
+    # -----------------------------
+    # SEARCH (HYBRID)
+    # -----------------------------
+    def search(self, query_embedding, query, top_k=5):
+        query_embedding = np.array(query_embedding).astype("float32")
 
-        vector = self.normalize(embedding).reshape(1, -1)
-        scores, indices = self.index.search(vector, k)
+        # Normalize query embedding
+        query_embedding = query_embedding / np.linalg.norm(query_embedding)
 
-        results = []
-        for score, i in zip(scores[0], indices[0]):
-            if i != -1 and score > 0.2:  # threshold filter
-                results.append((self.text_chunks[i], float(score)))
+        # -----------------------------
+        # 1. VECTOR SEARCH
+        # -----------------------------
+        D, I = self.index.search(np.array([query_embedding]), top_k * 2)
+        print(f"🔍 Vector search found {len(I[0])} candidates")
+        print(f"the candiates are {I[0]}")
 
-        return results
+        vector_results = []
+        for score, idx in zip(D[0], I[0]):
+            if idx != -1:
+                vector_results.append({
+                    "chunk": self.chunks[idx],
+                    "score": float(score),
+                    "source": "vector"
+                })
 
-    def keyword_search(self, query, k=15):
-        if not self.bm25:
-            return []
+        # -----------------------------
+        # 2. BM25 SEARCH
+        # -----------------------------
+        bm25_results = []
+        if self.bm25:
+            tokenized_query = query.lower().split()
+            scores = self.bm25.get_scores(tokenized_query)
 
-        tokenized_query = self.tokenize(query)
-        scores = self.bm25.get_scores(tokenized_query)
+            top_indices = np.argsort(scores)[-top_k * 2:][::-1]
+            print(f"🔍 BM25 search found {len(top_indices)} candidates")
+            print(f"the candiates are {top_indices}")
 
-        ranked = sorted(
-            zip(self.text_chunks, scores),
-            key=lambda x: x[1],
-            reverse=True
-        )
+            for idx in top_indices:
+                bm25_results.append({
+                    "chunk": self.chunks[idx],
+                    "score": float(scores[idx]),
+                    "source": "bm25"
+                })
 
-        # filter low scores
-        return [
-            (chunk, float(score))
-            for chunk, score in ranked[:k]
-            if score > 0
-        ]
+        # -----------------------------
+        # 3. NORMALIZATION FUNCTION
+        # -----------------------------
+        def normalize(results):
+            if not results:
+                return results
 
-    # -------------------------------
-    # Hybrid + Rerank
-    # -------------------------------
-    def search(self, embedding, query, k=5):
+            scores = [r["score"] for r in results]
+            min_s, max_s = min(scores), max(scores)
 
-        print("🔍 Hybrid search running...")
+            for r in results:
+                if max_s - min_s > 0:
+                    r["score"] = (r["score"] - min_s) / (max_s - min_s)
+                else:
+                    r["score"] = 0.5
 
-        # Step 1: Retrieve candidates
-        vector_results = self.vector_search(embedding, k=15)
-        keyword_results = self.keyword_search(query, k=15)
+            return results
+        
+        print(f"Before normalization: Vector scores {[r['score'] for r in vector_results]}")
+        print(f"Before normalization: BM25 scores {[r['score'] for r in bm25_results]}")
+        print(f"Before normalization: Vector results {vector_results}")
+        print(f"Before normalization: BM25 results {bm25_results}")
+        vector_results = normalize(vector_results)
+        bm25_results = normalize(bm25_results)
+        print(f"After normalization: Vector scores {[r['score'] for r in vector_results]}")
+        print(f"After normalization: BM25 scores {[r['score'] for r in bm25_results]}")
+        print(f"After normalization: Vector results {vector_results}")
+        print(f"After normalization: BM25 results {bm25_results}")
 
-        # Step 2: Normalize scores
-        vector_results = self.normalize_scores(vector_results)
-        keyword_results = self.normalize_scores(keyword_results)
+        # -----------------------------
+        # 4. COMBINE
+        # -----------------------------
+        combined = vector_results + bm25_results
 
-        # Step 3: Fusion
-        scores_dict = {}
+        # -----------------------------
+        # 5. SORT
+        # -----------------------------
+        combined = sorted(combined, key=lambda x: x["score"], reverse=True)
 
-        for chunk, score in vector_results:
-            key = id(chunk)
-            scores_dict[key] = scores_dict.get(key, 0) + 0.7 * score
+        # -----------------------------
+        # 6. DEDUPLICATION
+        # -----------------------------
+        seen = set()
+        final_results = []
 
-        for chunk, score in keyword_results:
-            key = id(chunk)
-            scores_dict[key] = scores_dict.get(key, 0) + 0.3 * score
+        for r in combined:
+            content = r["chunk"]["content"]
 
-        # Step 4: Map back
-        id_to_chunk = {id(c): c for c in self.text_chunks}
+            if content not in seen:
+                seen.add(content)
+                final_results.append(r["chunk"])
 
-        ranked = sorted(scores_dict.items(), key=lambda x: x[1], reverse=True)
-
-        # Debug (optional)
-        print("\nTop hybrid candidates:")
-        for key, score in ranked[:5]:
-            print(score, id_to_chunk[key]["content"][:80])
-
-        # Step 5: Select top candidates
-        top_candidates = [
-            id_to_chunk[key]
-            for key, _ in ranked[:15]
-        ]
-
-        # Step 6: Rerank
-        reranked = self.reranker.rerank(query, top_candidates, top_k=k)
-
+            if len(final_results) >= top_k:
+                break
+        print(f"🔍 Combined search found {len(final_results)} unique candidates")
+        print(f"the candiates are {final_results}")
+        reranked = self.reranker.rerank(query, final_results, top_k=top_k)
+        print(f"🔍 Reranked top {top_k} candidates: {reranked}")
+        print(f"the candiates are {reranked}")
         return reranked

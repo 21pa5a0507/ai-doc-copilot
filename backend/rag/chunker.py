@@ -13,7 +13,7 @@ def get_overlap_text(text, overlap_words=30):
 def clean_text(text):
     return re.sub(r'\s+', ' ', text).strip()
 
-def chunk_text(text, chunk_size=600, overlap_words=150, min_chunk_size=100):
+def chunk_text(text, chunk_size=400, overlap_words=80, min_chunk_size=80):
     text = clean_text(text)
     paragraphs = split_paragraphs(text)
 

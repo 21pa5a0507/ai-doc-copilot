@@ -1,5 +1,9 @@
 import asyncio
 import sys
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -38,11 +42,13 @@ async def startup_event():
 
 @app.post("/ask")
 def ask(query: Query):
+    print(f"Received question: {query.question}")
     question = query.question
 
     query_embedding = embed_text(question)
 
     chunks = vector_store.search(query_embedding, question)
+    print(f"🔍 Retrieved {len(chunks)} chunks for question: {question}")
 
     answer = generate_answer(question, chunks)
 
