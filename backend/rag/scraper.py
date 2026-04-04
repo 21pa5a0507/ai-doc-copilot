@@ -6,14 +6,15 @@ from bs4 import BeautifulSoup
 import json
 import re
 import requests
+import random
 from pathlib import Path
 from rag.cleaner import clean_text
 from rag.chunker import chunk_text
 from rag.embendings import get_embending
 from rag.vector_store import VectorStore
 
-SITEMAP_URL = "https://fastapi.tiangolo.com/sitemap.xml"
-BASE_DOMAIN = "fastapi.tiangolo.com"
+SITEMAP_URL = "https://www.hexnode.com/mobile-device-management/help/category-sitemap.xml"
+BASE_DOMAIN = "hexnode.com"
 MAX_DEPTH = 3
 
 
@@ -24,7 +25,16 @@ def get_all_urls():
     res = requests.get(SITEMAP_URL)
     soup = BeautifulSoup(res.text, "xml")
 
-    return [loc.text.strip() for loc in soup.find_all("loc")]
+    urls = [loc.text.strip() for loc in soup.find_all("loc")]
+
+    # ✅ Strict filtering
+    windows_urls = [
+        url for url in urls
+        if "windows" in url.lower()
+    ]
+
+    print(f"✅ Windows URLs: {len(windows_urls)}")
+    return windows_urls
 
 
 # -----------------------------
@@ -159,6 +169,9 @@ async def crawl_with_depth(start_urls):
 
             visited.add(url)
 
+            # ✅ Random delay BEFORE request
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+
             try:
                 result = await crawler.arun(url=url)
 
@@ -191,7 +204,7 @@ async def crawl_with_depth(start_urls):
                     print(f"Visiting: {url} | Depth: {depth} | Total: {len(visited)}")
                     link = normalize_url(link)
 
-                    if link not in visited and is_valid_url(link):
+                    if link not in visited and "windows" in link.lower():
                         queue.append((link, depth + 1))
 
             except Exception as e:
@@ -202,14 +215,27 @@ async def crawl_with_depth(start_urls):
 """ <================= Chunking docs =================> """
 
 def is_valid_chunk(text):
-    text_lower = text.lower()
+    text_lower = text.lower().strip()
 
-    blacklist = [
-        "next", "previous", "edit on github",
-        "table of contents", "navigation",
+    # ❌ Exact junk phrases (safe)
+    exact_blacklist = [
+        "next",
+        "previous",
+        "edit on github",
+        "table of contents",
+        "navigation",
     ]
 
-    if any(word in text_lower for word in blacklist):
+    if text_lower in exact_blacklist:
+        return False
+
+    # ❌ Very short useless chunks
+    if len(text_lower) < 30:
+        return False
+
+    # ❌ Too many symbols (menus, UI junk)
+    symbol_ratio = sum(1 for c in text if not c.isalnum() and not c.isspace()) / max(len(text), 1)
+    if symbol_ratio > 0.3:
         return False
 
     return True
@@ -259,7 +285,7 @@ def embedding_docs(docs, store):
 
     return store
 
-async def scrap_website(store, json_cache = "fastapi_docs.json"):
+async def scrap_website(store, json_cache = "hexnode_docs.json"):
     cache_path = Path(json_cache)
 
     if cache_path.exists():
@@ -267,8 +293,6 @@ async def scrap_website(store, json_cache = "fastapi_docs.json"):
             docs = json.load(f)
          print(f"✅ Loaded {len(docs)} documents from cache.")
     else:
-        docs = []
-
         print("🚀 Getting initial URLs...")
         start_urls = get_all_urls()
 
@@ -277,17 +301,17 @@ async def scrap_website(store, json_cache = "fastapi_docs.json"):
         print(f"🚀 Crawling with depth={MAX_DEPTH}...")
         docs = await crawl_with_depth(start_urls)
 
-        print(f"✅ Total chunks: {len(docs)}")
-
-        with open("fastapi_docs.json", "w", encoding="utf-8") as f:
+        with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(docs, f, indent=2, ensure_ascii=False)
 
 
 
     chunked_docs = chunking_docs(docs)
-    store = embedding_docs(chunked_docs, store)
-    store.build_bm25()
-    return store
+    embedding_docs(chunked_docs, store)
+    store.build_bm25()  # Build BM25 after all chunks added
+    store.save("vector_store.index")  # Save after embedding
+    
+    return True
 
 
 if __name__ == "__main__":

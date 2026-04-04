@@ -3,7 +3,8 @@ import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 import re
-
+import os
+import pickle
 
 # -------------------------------
 # Reranker
@@ -44,6 +45,30 @@ class VectorStore:
         self.tokenized_chunks = []
         self.bm25 = None
         self.reranker = Reranker()
+
+    def save(self, path):
+        faiss.write_index(self.index, path)
+
+        with open(path + "_meta.pkl", "wb") as f:
+            pickle.dump({
+                "text_chunks": self.chunks,
+                "tokenized_chunks": self.tokenized_chunks
+            }, f)
+    
+    def load(self, path):
+        if os.path.exists(path):
+            self.index = faiss.read_index(path)
+
+            with open(path + "_meta.pkl", "rb") as f:
+                meta = pickle.load(f)
+                self.chunks = meta["text_chunks"]
+                self.tokenized_chunks = meta["tokenized_chunks"]
+
+            self.build_bm25()
+
+            return True
+        else:
+            return False
     # -----------------------------
     # ADD DATA
     # -----------------------------

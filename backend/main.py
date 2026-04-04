@@ -9,11 +9,13 @@ if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
-from rag.answer_generator import generate_answer
+from rag.answer_generator import generate_answer, rewrite_query
 from rag.embendings import get_embending as embed_text
 from rag.vector_store import VectorStore
 from rag.scraper import scrap_website
+from rag.rag_initializer import initialize_vector_store
 from fastapi.middleware.cors import CORSMiddleware
+
 
 from pydantic import BaseModel
 
@@ -31,19 +33,21 @@ app.add_middleware(
 )
 
 
-vector_store = VectorStore()
+vector_store = None
 
 # Run scraper once when server starts
 @app.on_event("startup")
 async def startup_event():
-    await scrap_website(vector_store)
+    global vector_store
+    vector_store = await initialize_vector_store()
     print("Vectors stored:", vector_store.index.ntotal)
-
 
 @app.post("/ask")
 def ask(query: Query):
     print(f"Received question: {query.question}")
     question = query.question
+
+    # question = rewrite_query(question)
 
     query_embedding = embed_text(question)
 
