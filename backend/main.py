@@ -14,6 +14,11 @@ from rag.embendings import get_embending as embed_text
 from rag.vector_store import VectorStore
 from rag.scraper import scrap_website
 from rag.rag_initializer import initialize_vector_store
+from rag.keka_rag.loaders import load_pdfs
+from rag.keka_rag.splitter import split_documents
+from rag.keka_rag.vector_store import get_vectorstore as get_keka_vectorstore
+from rag.keka_rag.retriever import get_retriever as get_keka_retriever
+from rag.keka_rag.rag_chain import get_rag_chain as get_keka_rag_chain
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -21,6 +26,7 @@ from pydantic import BaseModel
 
 class Query(BaseModel):
     question: str
+    source: str = "default"
 
 app = FastAPI()
 
@@ -34,6 +40,29 @@ app.add_middleware(
 
 
 vector_store = None
+keka_rag_chain = None
+keka_retriever = None
+
+
+def init_keka_pipeline():
+    global keka_rag_chain, keka_retriever
+
+    if keka_rag_chain is not None and keka_retriever is not None:
+        return
+
+    try:
+        vectorstore = get_keka_vectorstore()
+        print("✅ Loaded existing Keka FAISS index")
+    except Exception as e:
+        print(f"⚠️ Keka FAISS load failed: {e}. Building new index...")
+        docs = load_pdfs()
+        chunks = split_documents(docs)
+        vectorstore = get_keka_vectorstore(chunks)
+
+    keka_retriever = get_keka_retriever(vectorstore)
+    keka_rag_chain = get_keka_rag_chain(keka_retriever)
+    print("✅ Keka RAG pipeline ready")
+
 
 # Run scraper once when server starts
 @app.on_event("startup")
@@ -42,22 +71,52 @@ async def startup_event():
     vector_store = await initialize_vector_store()
     print("Vectors stored:", vector_store.index.ntotal)
 
+    # Preload Keka RAG pipeline so source switching is ready immediately.
+    try:
+        init_keka_pipeline()
+    except ValueError as e:
+        print(f"⚠️ Keka RAG skipped: {e}")
+    except Exception as e:
+        print(f"⚠️ Keka RAG failed to initialize: {e}")
+
+
 @app.post("/ask")
 def ask(query: Query):
-    print(f"Received question: {query.question}")
+    print(f"Received question: {query.question} (source={query.source})")
     question = query.question
 
-    # question = rewrite_query(question)
+    if query.source.lower() in {"keka", "keka_rag"}:
+        if keka_retriever is None or keka_rag_chain is None:
+            return {
+                "question": question,
+                "chunks": [],
+                "answer": "❌ Keka RAG not available. Please set GOOGLE_API_KEY environment variable.",
+                "source": query.source
+            }
 
-    query_embedding = embed_text(question)
+        docs = keka_retriever.invoke(question)
+        print(f"🔍 Keka retrieved {len(docs)} docs for question: {question}")
 
-    chunks = vector_store.search(query_embedding, question)
-    print(f"🔍 Retrieved {len(chunks)} chunks for question: {question}")
+        chunks = [
+            {
+                "title": doc.metadata.get("file_name", "Keka document"),
+                "content": doc.page_content,
+                "source": doc.metadata.get("source", "keka"),
+            }
+            for doc in docs
+        ]
 
-    answer = generate_answer(question, chunks)
+        answer = keka_rag_chain(question, debug=False)
+    else:
+        query_embedding = embed_text(question)
 
+        chunks = vector_store.search(query_embedding, question)
+        print(f"🔍 Retrieved {len(chunks)} chunks for question: {question}")
+
+        answer = generate_answer(question, chunks)
     return {
         "question": question,
         "chunks": chunks,
-        "answer": answer
+        "answer": answer,
+        "source": query.source
     }

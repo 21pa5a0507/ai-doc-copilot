@@ -1,17 +1,14 @@
-import google.generativeai as genai
+from google import genai
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY1"))
 
-model = genai.GenerativeModel("models/gemini-3-flash-preview")
-
+MODEL_NAME = "gemini-2.5-flash-lite"
 def test_model():
-    prompt = "What are the key features of FastAPI?"
-    response = model.generate_content(prompt)
-    print(response.text)
+    print([m.name for m in client.models.list()])
 
 def rewrite_query(user_query):
     prompt = f"""
@@ -48,7 +45,10 @@ def generate_answer(question, chunks):
     Answer:
     """
 
-    response = model.generate_content(prompt)
+    response =  client.models.generate_content(
+        model=MODEL_NAME,
+        contents=prompt
+    )
 
     return response.text
 def get_gemini_models():
@@ -65,8 +65,5 @@ def get_gemini_models():
 if __name__ == "__main__":
     # It is best practice to store your API key in an environment variable
     # Replace 'GEMINI_API_KEY' with your actual key or environment variable name
-    available_models = get_gemini_models()
-        
-    for i in available_models:
-        print(f"- {i}")
+    # available_models = get_gemini_models()
     test_model()

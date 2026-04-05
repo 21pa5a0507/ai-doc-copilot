@@ -2,16 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import { askQuestion } from "../api/ragApi";
 
 export default function ChatBox({ setSources, history, setHistory, activeChat }) {
-useEffect(() => {
-  if (activeChat) {
-    setMessages(activeChat);
-  }
-}, [activeChat]);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [source, setSource] = useState("default");
 
   const bottomRef = useRef(null);
+
+  useEffect(() => {
+    if (activeChat) {
+      setMessages(activeChat);
+    }
+  }, [activeChat]);
 
   // 🔽 Auto scroll
   useEffect(() => {
@@ -49,7 +51,7 @@ useEffect(() => {
     setLoading(true);
 
     try {
-      const data = await askQuestion(question);
+      const data = await askQuestion(question, source);
 
       // Add empty AI message first
       setMessages((prev) => {
@@ -99,7 +101,16 @@ useEffect(() => {
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t flex gap-2 bg-white">
+      <div className="p-4 border-t flex gap-2 bg-white items-center">
+        <select
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          className="border p-3 rounded-lg bg-white"
+        >
+          <option value="default">Default RAG</option>
+          <option value="keka">Keka RAG</option>
+        </select>
+
         <input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
