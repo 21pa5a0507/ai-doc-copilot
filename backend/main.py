@@ -1,6 +1,8 @@
 import asyncio
 import sys
 import logging
+import pickle
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,6 +30,25 @@ class Query(BaseModel):
     question: str
     source: str = "default"
 
+CACHE_FILE = "rag/keka_faiss/keka_docs_cache.pkl"
+
+def load_cached_docs():
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'rb') as f:
+                return pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ Failed to load cached docs: {e}")
+    return None
+
+def save_cached_docs(docs):
+    try:
+        with open(CACHE_FILE, 'wb') as f:
+            pickle.dump(docs, f)
+        print("✅ Cached docs saved to file")
+    except Exception as e:
+        print(f"⚠️ Failed to save cached docs: {e}")
+
 app = FastAPI()
 
 app.add_middleware(
@@ -42,24 +63,36 @@ app.add_middleware(
 vector_store = None
 keka_rag_chain = None
 keka_retriever = None
+keka_docs = None
 
 
 def init_keka_pipeline():
-    global keka_rag_chain, keka_retriever
+    global keka_rag_chain, keka_retriever, keka_docs
 
     if keka_rag_chain is not None and keka_retriever is not None:
         return
+
+    # Load cached docs first
+    keka_docs = load_cached_docs()
 
     try:
         vectorstore = get_keka_vectorstore()
         print("✅ Loaded existing Keka FAISS index")
     except Exception as e:
         print(f"⚠️ Keka FAISS load failed: {e}. Building new index...")
-        docs = load_pdfs()
-        chunks = split_documents(docs)
-        vectorstore = get_keka_vectorstore(chunks)
+        if keka_docs is None:
+            docs = load_pdfs()
+            keka_docs = split_documents(docs)
+            save_cached_docs(keka_docs)
+        vectorstore = get_keka_vectorstore(keka_docs)
 
-    keka_retriever = get_keka_retriever(vectorstore)
+    # Load docs if not cached
+    if keka_docs is None:
+        docs = load_pdfs()
+        keka_docs = split_documents(docs)
+        save_cached_docs(keka_docs)
+
+    keka_retriever = get_keka_retriever(vectorstore, keka_docs)
     keka_rag_chain = get_keka_rag_chain(keka_retriever)
     print("✅ Keka RAG pipeline ready")
 
