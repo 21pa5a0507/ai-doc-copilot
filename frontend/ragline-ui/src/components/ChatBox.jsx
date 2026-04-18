@@ -1,32 +1,82 @@
 import { useState, useEffect, useRef } from "react";
 import { askQuestion } from "../api/ragApi";
+import Message from "./Message";
 
-export default function ChatBox({ setSources, history, setHistory, activeChat }) {
+const SOURCE_OPTIONS = [
+  {
+    value: "default",
+    label: "Hexnode Docs",
+    hint: "MDM setup guides, actions, policies, and troubleshooting",
+  },
+  {
+    value: "keka",
+    label: "Keka Policies",
+    hint: "HR policies, leave rules, payroll terms, and internal programs",
+  },
+  {
+    value: "both",
+    label: "Both Sources",
+    hint: "Combine Hexnode device guidance with Keka HR policies in one grounded answer",
+  },
+];
+
+const SUGGESTED_PROMPTS = [
+  "How to enroll a Windows device via open enrollment?",
+  "Explain the Profit-Sharing Program in simple points",
+  "How to apply the SCEP certificate policy?",
+  "What should a new employee know about device setup and HR onboarding policies?",
+];
+
+export default function ChatBox({ setSources, messages, setMessages, setIsLoadedChat }) {
   const [question, setQuestion] = useState("");
-  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [source, setSource] = useState("default");
 
   const bottomRef = useRef(null);
+  const textareaRef = useRef(null);
+  const selectedSource = SOURCE_OPTIONS.find((item) => item.value === source) || SOURCE_OPTIONS[0];
 
-  useEffect(() => {
-    if (activeChat) {
-      setMessages(activeChat);
-    }
-  }, [activeChat]);
+  const syncTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
 
-  // 🔽 Auto scroll
+    const maxHeight = 256;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+  };
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 🔥 Typing effect function
+  useEffect(() => {
+    syncTextareaHeight();
+  }, [question]);
+
   const typeMessage = (text, callback) => {
+    const safeText =
+      typeof text === "string"
+        ? text
+        : text == null
+          ? ""
+          : JSON.stringify(text, null, 2);
+
+    if (!safeText) {
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1].text = "";
+        return updated;
+      });
+      callback && callback();
+      return;
+    }
+
     let index = 0;
     let currentText = "";
 
     const interval = setInterval(() => {
-      currentText += text[index];
+      currentText += safeText[index];
       index++;
 
       setMessages((prev) => {
@@ -35,7 +85,7 @@ export default function ChatBox({ setSources, history, setHistory, activeChat })
         return updated;
       });
 
-      if (index === text.length) {
+      if (index === safeText.length) {
         clearInterval(interval);
         callback && callback();
       }
@@ -43,88 +93,149 @@ export default function ChatBox({ setSources, history, setHistory, activeChat })
   };
 
   const handleAsk = async () => {
-    if (!question) return;
+    if (!question.trim()) return;
 
-    const newMessages = [...messages, { role: "user", text: question }];
+    const userMessage = { role: "user", text: question };
+    const newMessages = [...messages, userMessage];
     setMessages(newMessages);
+    setIsLoadedChat(false);
     setQuestion("");
     setLoading(true);
 
     try {
       const data = await askQuestion(question, source);
 
-      // Add empty AI message first
       setMessages((prev) => {
         const updated = [...prev, { role: "ai", text: "" }];
 
-        // Start typing AFTER state update
         setTimeout(() => {
           typeMessage(data.answer);
         }, 100);
 
         return updated;
       });
-      setHistory((prev) => [...prev, [...newMessages, { role: "ai", text: data.answer }]]);
-      setSources(data.chunks);
+      setSources(Array.isArray(data.chunks) ? data.chunks : []);
 
     } catch (err) {
       console.error(err);
+      setMessages((prev) => [...prev, { role: "ai", text: "Sorry, an error occurred." }]);
     }
 
     setLoading(false);
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0">
-
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`p-3 rounded-xl max-w-xl ${
-              msg.role === "user"
-                ? "bg-blue-500 text-white ml-auto"
-                : "bg-gray-200 text-black"
-            }`}
-          >
-            {msg.text}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="border-b border-[var(--border)] bg-[var(--surface-soft)]/88 px-4 py-3 backdrop-blur-xl sm:px-5">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2">
+            {SOURCE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setSource(option.value)}
+                className={`source-toggle ${source === option.value ? "source-toggle-active" : ""}`}
+              >
+                <span className="text-sm font-semibold">{option.label}</span>
+              </button>
+            ))}
           </div>
-        ))}
+
+          <p className="text-sm leading-6 text-[var(--text-muted)]">
+            {selectedSource.hint}
+          </p>
+
+          {messages.length === 0 && (
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTED_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => setQuestion(prompt)}
+                  className="suggestion-chip"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="chat-scroll flex-1 overflow-y-auto px-4 py-5 min-h-0 sm:px-5">
+        {messages.length === 0 && (
+          <div className="empty-state">
+            <h2 className="font-display text-3xl font-semibold tracking-tight text-[var(--text-primary)]">
+              Ask a question.
+            </h2>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
+              Select a source above, ask naturally, and review the related references on the right when needed. Use
+              <span className="font-semibold text-[var(--text-primary)]"> Both Sources </span>
+              when you want one answer grounded in both Hexnode and Keka.
+            </p>
+          </div>
+        )}
+
+        <div className="flex w-full flex-col gap-4">
+          {messages.map((msg, i) => (
+            <Message key={i} message={msg} />
+          ))}
+        </div>
 
         {loading && (
-          <div className="text-gray-500">Thinking...</div>
+          <div className="mt-5 flex w-full items-start gap-3">
+            <div className="message-avatar message-avatar-ai">
+              HP
+            </div>
+            <div className="panel-soft rounded-[1.5rem] px-4 py-3">
+              <div className="flex space-x-1">
+                <div className="h-2 w-2 rounded-full bg-[var(--accent)] animate-bounce" />
+                <div
+                  className="h-2 w-2 rounded-full bg-[var(--accent)] animate-bounce"
+                  style={{ animationDelay: "0.1s" }}
+                />
+                <div
+                  className="h-2 w-2 rounded-full bg-[var(--accent)] animate-bounce"
+                  style={{ animationDelay: "0.2s" }}
+                />
+              </div>
+            </div>
+          </div>
         )}
 
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div className="p-4 border-t flex gap-2 bg-white items-center">
-        <select
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          className="border p-3 rounded-lg bg-white"
-        >
-          <option value="default">Default RAG</option>
-          <option value="keka">Keka RAG</option>
-        </select>
+      <div className="border-t border-[var(--border)] bg-[var(--surface-soft)]/92 px-4 py-4 backdrop-blur-xl sm:px-5">
+        <div className="composer-shell">
+          <div className="min-w-0 flex-1">
+            <textarea
+              ref={textareaRef}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleAsk();
+                }
+              }}
+              className="composer-input"
+              placeholder={`Ask from ${selectedSource.label}...`}
+              rows={1}
+              onInput={syncTextareaHeight}
+            />
+          </div>
 
-        <input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          className="flex-1 border p-3 rounded-lg outline-none"
-          placeholder="Ask anything from your docs..."
-        />
-        <button
-          onClick={handleAsk}
-          className="bg-black text-white px-4 rounded-lg"
-        >
-          Send
-        </button>
+          <button
+            type="button"
+            onClick={handleAsk}
+            disabled={loading || !question.trim()}
+            className="primary-button w-full shrink-0 justify-center disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-[9.5rem]"
+          >
+            {loading ? "Thinking..." : "Send"}
+          </button>
+        </div>
       </div>
-
     </div>
   );
 }

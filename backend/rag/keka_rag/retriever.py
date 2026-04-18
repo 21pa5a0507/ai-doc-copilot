@@ -33,18 +33,19 @@ class KekaRetriever:
         self.docs = docs
         self.bm25 = get_bm25_retriever(docs)
         self.reranker = Reranker()
-
-    def invoke(self, query: str):
-        # 1. Get results from both retrievers
-        bm25_docs = self.bm25.get_relevant_documents(query)
-        vector_docs = self.vectorstore.as_retriever(
+        self.vector_retriever = self.vectorstore.as_retriever(
             search_type="mmr",
             search_kwargs={
                 "k": 10,
                 "fetch_k": 30,
                 "lambda_mult": 0.7
             }
-        ).get_relevant_documents(query)
+        )
+
+    def invoke(self, query: str):
+        # 1. Get results from both retrievers
+        bm25_docs = self.bm25.invoke(query)
+        vector_docs = self.vector_retriever.invoke(query)
 
         # 2. Combine and deduplicate
         combined_docs = bm25_docs + vector_docs

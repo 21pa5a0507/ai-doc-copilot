@@ -23,27 +23,85 @@ def rewrite_query(user_query):
 
     return question.text.strip()
 
-def generate_answer(question, chunks):
+def generate_answer(question, chunks, mode="answer"):
+    """
+    Generate an answer using the provided context chunks.
+    """
 
     context = "\n\n".join([f"Title: {chunk['title']}\nContent: {chunk['content']}" for chunk in chunks])
 
-    prompt = f"""
-    You are a strict AI assistant.
+    # Base instructions to ensure consistent formatting across all modes
+    base_instructions = (
+        "You are an expert Hexnode Documentation Assistant. "
+        "Use ONLY the provided context. If the answer isn't there, say 'Information not found.' "
+        "Format using Markdown: **bold** for UI elements, `code` for values, and ### for headers."
+    )
 
-    Answer ONLY from the provided context.
-    Do NOT use your own knowledge.
+    if mode == "topics":
+        prompt = f"""
+        {base_instructions}
+        
+        ### TASK: CATEGORIZED OVERVIEW
+        1. Review the context and identify the main themes (e.g., Enrollment, Security, Network).
+        2. Group related features or settings under these themes.
+        3. Remove any duplicate information.
+        4. Present the information as a clean, high-level summary.
 
-    If the answer is not clearly present in the context, say:
-    "Answer not found in the provided documentation."
+        ### CONTEXT:
+        {context}
 
-    Context:
-    {context}
+        ### QUESTION:
+        {question}
 
-    Question:
-    {question}
+        ### OUTPUT FORMAT:
+        ## [Category Name]
+        - **[Feature Name]**: Brief description.
+        """
 
-    Answer:
-    """
+    elif mode == "steps":
+        prompt = f"""
+        {base_instructions}
+        
+        ### TASK: PROCEDURAL STEP EXTRACTION
+        1. Determine the exact action the user needs to complete.
+        2. Convert the provided context into a clear, ordered sequence of steps.
+        3. Use a numbered list and keep the sequence chronological.
+        4. For UI navigation, use the format: Navigate to **Tab** > **Setting** > **Sub-setting**.
+        5. If the context does not include an explicit procedure, infer the closest actionable guidance and answer directly.
+        6. Do NOT say the tool failed, or that steps were not found.
+        7. Do NOT mention the documentation, the context, or the tool in the answer.
+
+        ### CONTEXT:
+        {context}
+
+        ### QUESTION:
+        {question}
+
+        ### OUTPUT FORMAT:
+        1. **Step 1**: First action.
+        2. **Step 2**: Next action.
+        3. **Step 3**: Next action.
+        (If a procedure cannot be extracted, provide a short direct answer instead.)
+        """
+
+    else: # Default "answer" mode
+        prompt = f"""
+        {base_instructions}
+        
+        ### TASK: DIRECT Q&A
+        1. Find the specific answer to the user's question.
+        2. Provide a concise but complete response.
+        3. Use bullet points only if listing 3 or more related items.
+        4. Do not include introductory fluff like "Based on the docs..."
+
+        ### CONTEXT:
+        {context}
+
+        ### QUESTION:
+        {question}
+
+        ### FINAL ANSWER:
+        """
 
     response =  client.models.generate_content(
         model=MODEL_NAME,
@@ -53,17 +111,35 @@ def generate_answer(question, chunks):
     return response.text
 def get_gemini_models():
     """
-    Configures the API and returns a list of available models 
-    supporting content generation.
+    Returns model names from the configured Gemini client.
+    Falls back gracefully if generation-method metadata is unavailable.
     """
-    
-    # Filter for models that support generating content
-    models = [m.name for m in genai.list_models() 
-              if 'generateContent' in m.supported_generation_methods]
-    return models
+    available_models = []
+
+    try:
+        models = client.models.list()
+
+        for model in models:
+            name = getattr(model, "name", None)
+            if not name:
+                continue
+
+            methods = getattr(model, "supported_generation_methods", [])
+
+            # Some SDK/model responses may not expose supported_generation_methods.
+            # In that case, still include the model name rather than failing silently.
+            if not methods or "generateContent" in methods:
+                available_models.append(name)
+
+        return sorted(set(available_models))
+
+    except Exception as e:
+        return [f"Error fetching models: {e}"]
 
 if __name__ == "__main__":
     # It is best practice to store your API key in an environment variable
     # Replace 'GEMINI_API_KEY' with your actual key or environment variable name
-    # available_models = get_gemini_models()
-    test_model()
+    available_models = get_gemini_models()
+    print("Available Gemini models that support content generation:")
+    for model in available_models:
+        print(f"- {model}")

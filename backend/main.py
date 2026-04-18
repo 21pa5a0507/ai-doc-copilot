@@ -1,8 +1,6 @@
 import asyncio
 import sys
 import logging
-import pickle
-import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -11,16 +9,13 @@ if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
-from rag.answer_generator import generate_answer, rewrite_query
-from rag.embendings import get_embending as embed_text
-from rag.vector_store import VectorStore
-from rag.scraper import scrap_website
 from rag.rag_initializer import initialize_vector_store
-from rag.keka_rag.loaders import load_pdfs
-from rag.keka_rag.splitter import split_documents
-from rag.keka_rag.vector_store import get_vectorstore as get_keka_vectorstore
-from rag.keka_rag.retriever import get_retriever as get_keka_retriever
-from rag.keka_rag.rag_chain import get_rag_chain as get_keka_rag_chain
+from rag.answer_generator import generate_answer, rewrite_query
+from rag.combined_graph import build_combined_graph_runtime, run_combined_graph
+from rag.hexnode_graph import build_hexnode_graph_runtime
+from rag.hexnode_tools import handle_hexnode_question
+from rag.keka_rag.service import initialize_keka_service
+from rag.keka_rag.tools import handle_keka_question
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -29,25 +24,6 @@ from pydantic import BaseModel
 class Query(BaseModel):
     question: str
     source: str = "default"
-
-CACHE_FILE = "rag/keka_faiss/keka_docs_cache.pkl"
-
-def load_cached_docs():
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, 'rb') as f:
-                return pickle.load(f)
-        except Exception as e:
-            print(f"⚠️ Failed to load cached docs: {e}")
-    return None
-
-def save_cached_docs(docs):
-    try:
-        with open(CACHE_FILE, 'wb') as f:
-            pickle.dump(docs, f)
-        print("✅ Cached docs saved to file")
-    except Exception as e:
-        print(f"⚠️ Failed to save cached docs: {e}")
 
 app = FastAPI()
 
@@ -63,38 +39,54 @@ app.add_middleware(
 vector_store = None
 keka_rag_chain = None
 keka_retriever = None
-keka_docs = None
+keka_agent = None
+hexnode_graph_runtime = None
+combined_graph_runtime = None
 
 
 def init_keka_pipeline():
-    global keka_rag_chain, keka_retriever, keka_docs
+    global keka_agent, keka_rag_chain, keka_retriever
 
-    if keka_rag_chain is not None and keka_retriever is not None:
+    if keka_agent is not None and keka_rag_chain is not None and keka_retriever is not None:
         return
 
-    # Load cached docs first
-    keka_docs = load_cached_docs()
+    keka_service = initialize_keka_service()
+    keka_retriever = keka_service.retriever
+    keka_rag_chain = keka_service.rag_chain
+    keka_agent = keka_service.agent
 
-    try:
-        vectorstore = get_keka_vectorstore()
-        print("✅ Loaded existing Keka FAISS index")
-    except Exception as e:
-        print(f"⚠️ Keka FAISS load failed: {e}. Building new index...")
-        if keka_docs is None:
-            docs = load_pdfs()
-            keka_docs = split_documents(docs)
-            save_cached_docs(keka_docs)
-        vectorstore = get_keka_vectorstore(keka_docs)
 
-    # Load docs if not cached
-    if keka_docs is None:
-        docs = load_pdfs()
-        keka_docs = split_documents(docs)
-        save_cached_docs(keka_docs)
+def init_hexnode_graph():
+    global hexnode_graph_runtime
 
-    keka_retriever = get_keka_retriever(vectorstore, keka_docs)
-    keka_rag_chain = get_keka_rag_chain(keka_retriever)
-    print("✅ Keka RAG pipeline ready")
+    if hexnode_graph_runtime is not None or vector_store is None:
+        return
+
+    hexnode_graph_runtime = build_hexnode_graph_runtime(vector_store)
+
+
+def init_combined_graph():
+    global combined_graph_runtime
+
+    if combined_graph_runtime is not None:
+        return
+
+    if (
+        vector_store is None
+        or hexnode_graph_runtime is None
+        or keka_agent is None
+        or keka_retriever is None
+        or keka_rag_chain is None
+    ):
+        return
+
+    combined_graph_runtime = build_combined_graph_runtime(
+        vector_store,
+        keka_retriever,
+        keka_rag_chain,
+        keka_agent,
+        hexnode_graph_runtime=hexnode_graph_runtime,
+    )
 
 
 # Run scraper once when server starts
@@ -104,6 +96,13 @@ async def startup_event():
     vector_store = await initialize_vector_store()
     print("Vectors stored:", vector_store.index.ntotal)
 
+    try:
+        init_hexnode_graph()
+    except ValueError as e:
+        print(f"⚠️ Hexnode graph skipped: {e}")
+    except Exception as e:
+        print(f"⚠️ Hexnode graph failed to initialize: {e}")
+
     # Preload Keka RAG pipeline so source switching is ready immediately.
     try:
         init_keka_pipeline()
@@ -112,14 +111,48 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Keka RAG failed to initialize: {e}")
 
+    try:
+        init_combined_graph()
+    except ValueError as e:
+        print(f"⚠️ Combined graph skipped: {e}")
+    except Exception as e:
+        print(f"⚠️ Combined graph failed to initialize: {e}")
+
 
 @app.post("/ask")
 def ask(query: Query):
     print(f"Received question: {query.question} (source={query.source})")
     question = query.question
+    normalized_source = query.source.lower()
 
-    if query.source.lower() in {"keka", "keka_rag"}:
-        if keka_retriever is None or keka_rag_chain is None:
+    if normalized_source == "both":
+        if vector_store is None:
+            return {
+                "question": question,
+                "chunks": [],
+                "answer": "❌ Hexnode knowledge base is not initialized yet. Start the vector-store setup or enable the startup initializer before asking combined questions.",
+                "source": query.source,
+            }
+
+        if keka_agent is None or keka_retriever is None or keka_rag_chain is None:
+            return {
+                "question": question,
+                "chunks": [],
+                "answer": "❌ Keka RAG not available. Please set GOOGLE_API_KEY environment variable before asking combined questions.",
+                "source": query.source,
+            }
+
+        response = run_combined_graph(
+            question,
+            vector_store,
+            keka_retriever,
+            keka_rag_chain,
+            keka_agent,
+            runtime=combined_graph_runtime,
+            hexnode_graph_runtime=hexnode_graph_runtime,
+        )
+    elif normalized_source in {"keka", "keka_rag"}:
+        if keka_agent is None or keka_retriever is None or keka_rag_chain is None:
             return {
                 "question": question,
                 "chunks": [],
@@ -127,29 +160,22 @@ def ask(query: Query):
                 "source": query.source
             }
 
-        docs = keka_retriever.invoke(question)
-        print(f"🔍 Keka retrieved {len(docs)} docs for question: {question}")
-
-        chunks = [
-            {
-                "title": doc.metadata.get("file_name", "Keka document"),
-                "content": doc.page_content,
-                "source": doc.metadata.get("source", "keka"),
-            }
-            for doc in docs
-        ]
-
-        answer = keka_rag_chain(question, debug=False)
+        response = handle_keka_question(question, keka_retriever, keka_rag_chain, agent=keka_agent)
     else:
-        query_embedding = embed_text(question)
+        if vector_store is None:
+            return {
+                "question": question,
+                "chunks": [],
+                "answer": "❌ Hexnode knowledge base is not initialized yet. Start the vector-store setup or enable the startup initializer before asking default-source questions.",
+                "source": query.source
+            }
 
-        chunks = vector_store.search(query_embedding, question)
-        print(f"🔍 Retrieved {len(chunks)} chunks for question: {question}")
+        response = handle_hexnode_question(
+            question,
+            vector_store,
+            generate_answer,
+            graph_runtime=hexnode_graph_runtime,
+        )
 
-        answer = generate_answer(question, chunks)
-    return {
-        "question": question,
-        "chunks": chunks,
-        "answer": answer,
-        "source": query.source
-    }
+    response["source"] = query.source
+    return response

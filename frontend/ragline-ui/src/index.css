@@ -1,3 +1,335 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --font-body: "Manrope", sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --accent: #7dd3fc;
+  --accent-strong: #38bdf8;
+  --accent-soft: rgba(125, 211, 252, 0.22);
+  --shadow-soft: 0 24px 60px rgba(5, 10, 24, 0.18);
+  --glow-primary: rgba(34, 211, 238, 0.28);
+  --glow-secondary: rgba(59, 130, 246, 0.24);
+}
+
+:root[data-theme="dark"] {
+  --app-bg: #07111f;
+  --sidebar-bg: #091423;
+  --surface: rgba(9, 19, 33, 0.78);
+  --surface-elevated: rgba(12, 24, 40, 0.92);
+  --surface-soft: rgba(15, 29, 46, 0.78);
+  --surface-muted: rgba(13, 25, 39, 0.95);
+  --text-primary: #edf4ff;
+  --text-secondary: #bfd0e6;
+  --text-muted: #7f95b2;
+  --border: rgba(145, 174, 211, 0.13);
+  --border-strong: rgba(145, 174, 211, 0.26);
+}
+
+:root[data-theme="light"] {
+  --app-bg: #eef3f9;
+  --sidebar-bg: rgba(246, 249, 253, 0.92);
+  --surface: rgba(255, 255, 255, 0.76);
+  --surface-elevated: rgba(255, 255, 255, 0.96);
+  --surface-soft: rgba(246, 249, 253, 0.88);
+  --surface-muted: rgba(240, 244, 249, 0.95);
+  --text-primary: #112033;
+  --text-secondary: #33465f;
+  --text-muted: #687b93;
+  --border: rgba(17, 32, 51, 0.08);
+  --border-strong: rgba(17, 32, 51, 0.16);
+  --shadow-soft: 0 24px 60px rgba(28, 40, 66, 0.1);
+  --glow-primary: rgba(56, 189, 248, 0.16);
+  --glow-secondary: rgba(14, 165, 233, 0.12);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    background: var(--app-bg);
+    overflow: hidden;
+  }
+
+  body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    font-family: var(--font-body);
+    background:
+      radial-gradient(circle at top left, rgba(125, 211, 252, 0.08), transparent 28%),
+      radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.08), transparent 22%),
+      var(--app-bg);
+    color: var(--text-primary);
+    transition:
+      background-color 220ms ease,
+      color 220ms ease;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  textarea {
+    resize: none;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  *::selection {
+    background: rgba(125, 211, 252, 0.28);
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply relative h-screen overflow-hidden;
+    background: var(--app-bg);
+    color: var(--text-primary);
+  }
+
+  .panel {
+    @apply min-h-0 rounded-[1.5rem] border;
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: 0 16px 40px rgba(5, 10, 24, 0.14);
+    backdrop-filter: blur(18px);
+  }
+
+  .panel-soft {
+    @apply rounded-[1.2rem] border;
+    background: var(--surface-soft);
+    border-color: var(--border);
+  }
+
+  .brand-mark {
+    @apply flex h-12 w-12 items-center justify-center rounded-2xl text-sm font-semibold tracking-[0.22em];
+    background:
+      linear-gradient(145deg, rgba(125, 211, 252, 0.25), rgba(56, 189, 248, 0.08)),
+      var(--surface-muted);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .brand-mark-small {
+    @apply h-10 w-10 rounded-xl text-xs;
+  }
+
+  .icon-button {
+    @apply inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition-all duration-200;
+    background: var(--surface-soft);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
+
+  .icon-button:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+  }
+
+  .primary-button {
+    @apply inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200;
+    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+    color: #ffffff;
+    box-shadow: 0 16px 35px rgba(14, 165, 233, 0.25);
+  }
+
+  .primary-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 20px 40px rgba(14, 165, 233, 0.3);
+  }
+
+  .theme-button {
+    @apply inline-flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all duration-200;
+    background: var(--surface-soft);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
+
+  .theme-button:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+  }
+
+.theme-button-indicator {
+  @apply h-3 w-3 rounded-full;
+  background: linear-gradient(135deg, #020617, #111827);
+  box-shadow: 0 0 0 4px rgba(125, 211, 252, 0.12);
+}
+
+:root[data-theme="dark"] .theme-button-indicator {
+  background: linear-gradient(135deg, #f8fafc, #7dd3fc);
+}
+
+  .source-chip {
+    @apply inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  .source-chip-score {
+    color: var(--text-primary);
+    min-width: 3.5rem;
+    justify-content: center;
+  }
+
+  .sidebar-item {
+    @apply w-full rounded-[1rem] border px-4 py-4 text-left transition-all duration-200;
+    background: var(--surface-soft);
+    border-color: var(--border);
+  }
+
+  .sidebar-item:hover {
+    transform: translateY(-1px);
+    border-color: var(--border-strong);
+    background: var(--surface-elevated);
+  }
+
+  .sidebar-item-active {
+    border-color: rgba(125, 211, 252, 0.32);
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), var(--surface-elevated));
+  }
+
+  .source-toggle {
+    @apply inline-flex items-center rounded-full border px-4 py-2 text-left text-sm transition-all duration-200;
+    background: var(--surface-elevated);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
+
+  .source-toggle:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+  }
+
+  .source-toggle-active {
+    border-color: rgba(125, 211, 252, 0.36);
+    background: rgba(56, 189, 248, 0.14);
+  }
+
+  .suggestion-chip {
+    @apply inline-flex items-center rounded-full border px-3 py-2 text-sm transition-all duration-200;
+    background: var(--surface-elevated);
+    border-color: var(--border);
+    color: var(--text-secondary);
+  }
+
+  .suggestion-chip:hover {
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+    background: var(--surface);
+  }
+
+  .empty-state {
+    @apply w-full rounded-[1.2rem] border px-5 py-6;
+    background: var(--surface-soft);
+    border-color: var(--border);
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.28em];
+    color: var(--accent);
+  }
+
+  .composer-shell {
+    @apply flex flex-col gap-3 rounded-[1rem] border p-3 sm:flex-row sm:items-end;
+    background: var(--surface-elevated);
+    border-color: var(--border);
+  }
+
+  .composer-input {
+    @apply w-full rounded-[0.9rem] border px-4 py-3 text-sm leading-6 outline-none transition-all duration-200;
+    background: var(--surface-soft);
+    border-color: var(--border);
+    color: var(--text-primary);
+    max-height: 16rem;
+  }
+
+  .composer-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .composer-input:focus {
+    border-color: rgba(125, 211, 252, 0.34);
+    box-shadow: 0 0 0 4px rgba(125, 211, 252, 0.08);
+  }
+
+  .message-shell {
+    animation: rise-in 240ms ease-out;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .message-avatar {
+    @apply flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-semibold tracking-[0.22em];
+    border: 1px solid var(--border);
+  }
+
+  .message-avatar-ai {
+    background: linear-gradient(145deg, rgba(125, 211, 252, 0.2), rgba(56, 189, 248, 0.08));
+    color: var(--text-primary);
+  }
+
+  .message-avatar-user {
+    background: rgba(14, 165, 233, 0.18);
+    color: var(--text-primary);
+  }
+
+  .chat-scroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .chat-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .chat-scroll::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(127, 149, 178, 0.28);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .chat-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(127, 149, 178, 0.42);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

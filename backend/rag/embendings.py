@@ -1,7 +1,17 @@
 from sentence_transformers import SentenceTransformer
 
-# Load model once (VERY IMPORTANT)
-model = SentenceTransformer('all-MiniLM-L6-v2')  # 🔥 CRITICAL: load on GPU if available
+MODEL_NAME = "all-MiniLM-L6-v2"
+_model = None
+
+
+def _get_model():
+    global _model
+
+    if _model is None:
+        print(f"Loading embedding model: {MODEL_NAME}")
+        _model = SentenceTransformer(MODEL_NAME)
+
+    return _model
 
 def get_embending(texts):
     """
@@ -13,6 +23,8 @@ def get_embending(texts):
     if isinstance(texts, str):
         texts = [texts]  # Add query prefix for single string input
         single_input = True
+
+    model = _get_model()
 
     embeddings = model.encode(
         texts,
