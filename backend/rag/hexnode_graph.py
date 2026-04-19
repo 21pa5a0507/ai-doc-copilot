@@ -18,6 +18,7 @@ from rag.hexnode_tools import (
     list_hexnode_topics,
     search_hexnode_docs,
 )
+from rag.gemini_models import PRIMARY_MODEL
 
 load_dotenv()
 
@@ -89,7 +90,7 @@ def _get_llm():
         raise ValueError("GOOGLE_API_KEY or GEMINI_API_KEY1 must be set for Hexnode graph")
 
     return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash-lite",
+        model=PRIMARY_MODEL,
         temperature=0.2,
         google_api_key=api_key,
     )

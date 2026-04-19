@@ -2,6 +2,22 @@ import re
 from bs4 import BeautifulSoup
 
 
+JUNK_PATTERNS = [
+    r"Table of contents",
+    r"Search",
+    r"Navigation",
+    r"Menu",
+    r"Previous",
+    r"Next",
+    r"Edit on GitHub",
+    r"GitHub",
+    r"Release Notes",
+    r"About",
+    r"Resources",
+    r"Skip to content",
+]
+
+
 def clean_text(raw_html: str) -> str:
     if not raw_html:
         return ""
@@ -28,24 +44,7 @@ def clean_text(raw_html: str) -> str:
     # -----------------------------
     # 4. Remove common UI junk
     # -----------------------------
-    junk_patterns = [
-        r"Table of contents",
-        r"Search",
-        r"Navigation",
-        r"Menu",
-        r"Previous",
-        r"Next",
-        r"Edit on GitHub",
-        r"Open in Colab",
-        r"FastAPI documentation",
-        r"GitHub",
-        r"Release Notes",
-        r"About",
-        r"Resources",
-        r"Skip to content"
-    ]
-
-    for pattern in junk_patterns:
+    for pattern in JUNK_PATTERNS:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
 
     # -----------------------------

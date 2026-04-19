@@ -1,19 +1,14 @@
 import pickle
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, List
 
+from config.paths import KEKA_DOCS_CACHE, KEKA_FAISS_DIR, ensure_storage_dirs
 from rag.keka_rag.keka_agent import build_keka_agent
 from rag.keka_rag.loaders import load_pdfs
 from rag.keka_rag.rag_chain import get_rag_chain
 from rag.keka_rag.retriever import get_retriever
 from rag.keka_rag.splitter import split_documents
 from rag.keka_rag.vector_store import get_vectorstore
-
-
-BACKEND_DIR = Path(__file__).resolve().parents[2]
-KEKA_FAISS_DIR = BACKEND_DIR / "keka_faiss"
-KEKA_DOCS_CACHE_FILE = KEKA_FAISS_DIR / "keka_docs_cache.pkl"
 
 
 @dataclass
@@ -26,23 +21,23 @@ class KekaService:
 
 
 def load_cached_docs():
-    if KEKA_DOCS_CACHE_FILE.exists():
+    if KEKA_DOCS_CACHE.exists():
         try:
-            with KEKA_DOCS_CACHE_FILE.open("rb") as file:
+            with KEKA_DOCS_CACHE.open("rb") as file:
                 return pickle.load(file)
         except Exception as exc:
-            print(f"⚠️ Failed to load cached docs: {exc}")
+            print(f"Failed to load cached docs: {exc}")
     return None
 
 
 def save_cached_docs(docs):
     try:
-        KEKA_FAISS_DIR.mkdir(parents=True, exist_ok=True)
-        with KEKA_DOCS_CACHE_FILE.open("wb") as file:
+        ensure_storage_dirs()
+        with KEKA_DOCS_CACHE.open("wb") as file:
             pickle.dump(docs, file)
-        print("✅ Cached docs saved to file")
+        print("Cached docs saved to file")
     except Exception as exc:
-        print(f"⚠️ Failed to save cached docs: {exc}")
+        print(f"Failed to save cached docs: {exc}")
 
 
 def _load_or_create_docs():
@@ -56,22 +51,23 @@ def _load_or_create_docs():
 
 
 def initialize_keka_service():
+    ensure_storage_dirs()
     docs = load_cached_docs()
 
     try:
-        vectorstore = get_vectorstore(path=str(KEKA_FAISS_DIR))
-        print("✅ Loaded existing Keka FAISS index")
+        vectorstore = get_vectorstore(path=KEKA_FAISS_DIR)
+        print("Loaded existing Keka FAISS index")
     except Exception as exc:
-        print(f"⚠️ Keka FAISS load failed: {exc}. Building new index...")
+        print(f"Keka FAISS load failed: {exc}. Building new index...")
         docs = docs or _load_or_create_docs()
-        vectorstore = get_vectorstore(docs, path=str(KEKA_FAISS_DIR))
+        vectorstore = get_vectorstore(docs, path=KEKA_FAISS_DIR)
 
     docs = docs or _load_or_create_docs()
     retriever = get_retriever(vectorstore, docs)
     rag_chain = get_rag_chain(retriever)
     agent = build_keka_agent(retriever)
 
-    print("✅ Keka RAG pipeline ready")
+    print("Keka RAG pipeline ready")
     return KekaService(
         docs=docs,
         vectorstore=vectorstore,

@@ -25,10 +25,14 @@ function App() {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
-  const handleNewChat = () => {
+  const saveCurrentChat = () => {
     if (!isLoadedChat && messages.length > 0) {
       setHistory((prev) => [...prev, messages]);
     }
+  };
+
+  const handleNewChat = () => {
+    saveCurrentChat();
     setMessages([]);
     setActiveChat(null);
     setSources([]);
@@ -37,9 +41,7 @@ function App() {
   };
 
   const handleSelectChat = (chat) => {
-    if (!isLoadedChat && messages.length > 0) {
-      setHistory((prev) => [...prev, messages]);
-    }
+    saveCurrentChat();
     setMessages(chat);
     setActiveChat(chat);
     setSidebarOpen(false);

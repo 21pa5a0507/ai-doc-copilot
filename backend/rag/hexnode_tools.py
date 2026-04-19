@@ -114,7 +114,7 @@ def handle_hexnode_question(question, vector_store, answer_generator, graph_runt
 
         return run_hexnode_graph(question, vector_store, runtime=graph_runtime)
     except Exception as exc:
-        print(f"⚠️ Hexnode graph fallback triggered: {exc}")
+        print(f"Hexnode graph fallback triggered: {exc}")
 
     lowered_question = question.lower()
 
@@ -165,8 +165,8 @@ def handle_hexnode_question(question, vector_store, answer_generator, graph_runt
         chunks = tool_result["chunks"]
         answer = answer_generator(question, chunks)
 
-    print(f"🔍 Retrieved {len(chunks)} chunks for question: {question}")
-    print(f"🛠️ Tool used: {tool_result['tool_name']}")
+    print(f"Retrieved {len(chunks)} chunks for question: {question}")
+    print(f"Tool used: {tool_result['tool_name']}")
 
     return {
         "question": question,

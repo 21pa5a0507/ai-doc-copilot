@@ -2,3 +2,6 @@
 venv
 __pycache__/
 *.pyc
+storage/
+backend/venv/
+backend/__pycache__/

@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 
 class HFEmbeddings(Embeddings):
     def __init__(self, model_name="BAAI/bge-base-en"):
-        print("🚀 Loading embedding model...")
+        print("Loading embedding model...")
         self.model = SentenceTransformer(model_name)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
@@ -28,7 +28,7 @@ class HFEmbeddings(Embeddings):
         )[0].tolist()
 
 
-# singleton
+# Singleton instance
 _embedding_instance = None
 
 

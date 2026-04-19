@@ -28,10 +28,10 @@ def get_embending(texts):
 
     embeddings = model.encode(
         texts,
-        batch_size=32,              # 🔥 faster
+        batch_size=32,
         show_progress_bar=True,
         convert_to_numpy=True,
-        normalize_embeddings=True  # 🔥 CRITICAL (cosine similarity fix)
+        normalize_embeddings=True,
     )
 
     if single_input:

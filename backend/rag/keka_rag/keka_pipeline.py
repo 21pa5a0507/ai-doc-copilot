@@ -12,7 +12,7 @@ def main():
             break
 
         answer = rag(query, debug=False)
-        print("\n💡 Answer:\n", answer)
+        print("\nAnswer:\n", answer)
 
 
 if __name__ == "__main__":

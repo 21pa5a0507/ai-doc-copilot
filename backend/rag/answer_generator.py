@@ -1,27 +1,33 @@
-from google import genai
 import os
 from dotenv import load_dotenv
+from rag.gemini_models import PRIMARY_MODEL, generate_text_with_fallback, get_genai_client
 
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY1"))
+client = get_genai_client()
 
-MODEL_NAME = "gemini-2.5-flash-lite"
-def test_model():
-    print([m.name for m in client.models.list()])
+MODEL_NAME = PRIMARY_MODEL
+
 
 def rewrite_query(user_query):
     prompt = f"""
-    Rewrite the query using FastAPI terms like HTTP methods, path operations, request body, query parameters, and dependencies.
+    Rewrite the user question into a concise search-friendly query.
+    Preserve the original meaning.
+    Do not add new details.
 
     Query: {user_query}
     Rewritten:
     """
-    question = model.generate_content(prompt)
+    try:
+        rewritten = generate_text_with_fallback(client, prompt)
+        if not rewritten:
+            return user_query.strip()
+        print(f"Rewritten query: {rewritten}")
+        return rewritten
+    except Exception as exc:
+        print(f"Query rewrite failed: {exc}")
+        return user_query.strip()
 
-    print(f"🔄 Rewritten query: {question.text.strip()}")
-
-    return question.text.strip()
 
 def generate_answer(question, chunks, mode="answer"):
     """
@@ -103,12 +109,22 @@ def generate_answer(question, chunks, mode="answer"):
         ### FINAL ANSWER:
         """
 
-    response =  client.models.generate_content(
-        model=MODEL_NAME,
-        contents=prompt
-    )
+    try:
+        answer = generate_text_with_fallback(client, prompt)
+        if answer:
+            return answer
+    except Exception as exc:
+        print(f"Answer generation failed: {exc}")
 
-    return response.text
+    if not chunks:
+        return "Information not found."
+
+    if mode == "topics":
+        return chunks[0].get("content", "").strip() or "Information not found."
+
+    return chunks[0].get("content", "").strip() or "Information not found."
+
+
 def get_gemini_models():
     """
     Returns model names from the configured Gemini client.
@@ -136,9 +152,8 @@ def get_gemini_models():
     except Exception as e:
         return [f"Error fetching models: {e}"]
 
+
 if __name__ == "__main__":
-    # It is best practice to store your API key in an environment variable
-    # Replace 'GEMINI_API_KEY' with your actual key or environment variable name
     available_models = get_gemini_models()
     print("Available Gemini models that support content generation:")
     for model in available_models:

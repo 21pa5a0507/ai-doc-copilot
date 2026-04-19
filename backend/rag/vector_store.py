@@ -2,9 +2,9 @@ import faiss
 import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
-import re
 import os
 import pickle
+from pathlib import Path
 
 # -------------------------------
 # Reranker
@@ -32,6 +32,7 @@ class Reranker:
 
         return [chunk for chunk, _ in ranked[:top_k]]
 
+
 class VectorStore:
     def __init__(self, dim=384):
         # FAISS index (cosine similarity using inner product)
@@ -47,19 +48,25 @@ class VectorStore:
         self.reranker = Reranker()
 
     def save(self, path):
-        faiss.write_index(self.index, path)
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(self.index, str(path))
 
-        with open(path + "_meta.pkl", "wb") as f:
+        meta_path = path.with_name(path.name + "_meta.pkl")
+        with meta_path.open("wb") as f:
             pickle.dump({
                 "text_chunks": self.chunks,
                 "tokenized_chunks": self.tokenized_chunks
             }, f)
     
     def load(self, path):
-        if os.path.exists(path):
-            self.index = faiss.read_index(path)
+        path = Path(path)
+        meta_path = path.with_name(path.name + "_meta.pkl")
 
-            with open(path + "_meta.pkl", "rb") as f:
+        if path.exists():
+            self.index = faiss.read_index(str(path))
+
+            with meta_path.open("rb") as f:
                 meta = pickle.load(f)
                 self.chunks = meta["text_chunks"]
                 self.tokenized_chunks = meta["tokenized_chunks"]
@@ -69,6 +76,7 @@ class VectorStore:
             return True
         else:
             return False
+
     # -----------------------------
     # ADD DATA
     # -----------------------------
@@ -92,11 +100,11 @@ class VectorStore:
     # -----------------------------
     def build_bm25(self):
         if not self.tokenized_chunks:
-            print("⚠️ No chunks for BM25")
+            print("No chunks for BM25")
             return
 
         self.bm25 = BM25Okapi(self.tokenized_chunks)
-        print(f"✅ BM25 built on {len(self.tokenized_chunks)} chunks")
+        print(f"BM25 built on {len(self.tokenized_chunks)} chunks")
 
     # -----------------------------
     # SEARCH (HYBRID)
@@ -110,12 +118,10 @@ class VectorStore:
         # -----------------------------
         # 1. VECTOR SEARCH
         # -----------------------------
-        D, I = self.index.search(np.array([query_embedding]), top_k * 2)
-        print(f"🔍 Vector search found {len(I[0])} candidates")
-        print(f"the candiates are {I[0]}")
+        distances, indices = self.index.search(np.array([query_embedding]), top_k * 2)
 
         vector_results = []
-        for score, idx in zip(D[0], I[0]):
+        for score, idx in zip(distances[0], indices[0]):
             if idx != -1:
                 vector_results.append({
                     "chunk": self.chunks[idx],
@@ -132,8 +138,6 @@ class VectorStore:
             scores = self.bm25.get_scores(tokenized_query)
 
             top_indices = np.argsort(scores)[-top_k * 2:][::-1]
-            print(f"🔍 BM25 search found {len(top_indices)} candidates")
-            print(f"the candiates are {top_indices}")
 
             for idx in top_indices:
                 bm25_results.append({
@@ -159,17 +163,9 @@ class VectorStore:
                     r["score"] = 0.5
 
             return results
-        
-        print(f"Before normalization: Vector scores {[r['score'] for r in vector_results]}")
-        print(f"Before normalization: BM25 scores {[r['score'] for r in bm25_results]}")
-        print(f"Before normalization: Vector results {vector_results}")
-        print(f"Before normalization: BM25 results {bm25_results}")
+
         vector_results = normalize(vector_results)
         bm25_results = normalize(bm25_results)
-        print(f"After normalization: Vector scores {[r['score'] for r in vector_results]}")
-        print(f"After normalization: BM25 scores {[r['score'] for r in bm25_results]}")
-        print(f"After normalization: Vector results {vector_results}")
-        print(f"After normalization: BM25 results {bm25_results}")
 
         # -----------------------------
         # 4. COMBINE
@@ -187,18 +183,22 @@ class VectorStore:
         seen = set()
         final_results = []
 
-        for r in combined:
-            content = r["chunk"]["content"]
+        for result in combined:
+            content = result["chunk"]["content"]
 
             if content not in seen:
                 seen.add(content)
-                final_results.append(r["chunk"])
+                final_results.append(result["chunk"])
 
             if len(final_results) >= top_k:
                 break
-        print(f"🔍 Combined search found {len(final_results)} unique candidates")
-        print(f"the candiates are {final_results}")
+
         reranked = self.reranker.rerank(query, final_results, top_k=top_k)
-        print(f"🔍 Reranked top {top_k} candidates: {reranked}")
-        print(f"the candiates are {reranked}")
+        print(
+            "Hybrid search candidates: "
+            f"vector={len(vector_results)}, "
+            f"bm25={len(bm25_results)}, "
+            f"unique={len(final_results)}, "
+            f"reranked={len(reranked)}"
+        )
         return reranked

@@ -1,8 +1,8 @@
-from pathlib import Path
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
+from config.paths import KEKA_SOURCE_PDF_DIR
 
-PDF_FOLDER = Path(__file__).resolve().parents[3] / "keka_data"
+PDF_FOLDER = KEKA_SOURCE_PDF_DIR
 
 
 def load_pdfs():
@@ -17,7 +17,7 @@ def load_pdfs():
         raise ValueError("No PDF files found in keka_data folder")
 
     for file in pdf_files:
-        print(f"📄 Loading: {file.name}")
+        print(f"Loading {file.name}")
 
         loader = PyPDFLoader(str(file))
         pages = loader.load()
@@ -33,5 +33,5 @@ def load_pdfs():
                 )
             )
 
-    print(f"✅ Loaded {len(documents)} pages")
+    print(f"Loaded {len(documents)} pages")
     return documents

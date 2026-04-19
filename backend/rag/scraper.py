@@ -4,14 +4,13 @@ import asyncio
 from collections import deque
 from bs4 import BeautifulSoup
 import json
-import re
 import requests
 import random
 from pathlib import Path
+from config.paths import HEXNODE_DOCS_JSON, HEXNODE_VECTOR_INDEX
 from rag.cleaner import clean_text
 from rag.chunker import chunk_text
 from rag.embendings import get_embending
-from rag.vector_store import VectorStore
 
 SITEMAP_URL = "https://www.hexnode.com/mobile-device-management/help/category-sitemap.xml"
 BASE_DOMAIN = "hexnode.com"
@@ -27,13 +26,13 @@ def get_all_urls():
 
     urls = [loc.text.strip() for loc in soup.find_all("loc")]
 
-    # ✅ Strict filtering
+    # Keep the crawl focused on the Windows docs.
     windows_urls = [
         url for url in urls
         if "windows" in url.lower()
     ]
 
-    print(f"✅ Windows URLs: {len(windows_urls)}")
+    print(f"Windows URLs: {len(windows_urls)}")
     return windows_urls
 
 
@@ -108,48 +107,13 @@ def chunk_by_headings(main_tag, page_title="", url=""):
 
     return chunks
 
+
 def normalize_url(url: str) -> str:
     url = url.split("#")[0]
     url = url.split("?")[0]
     return url.rstrip("/")
 
-def is_valid_url(url: str) -> bool:
-    # Normalize quick checks
-    url_lower = url.lower()
 
-    # ❌ Skip obvious junk
-    if any(x in url_lower for x in [
-        "#", "mailto:", "javascript:", "?",
-        "twitter", "facebook", "linkedin"
-    ]):
-        return False
-
-    # ❌ Block unwanted sections
-    blocked_paths = [
-        "/search",
-        "/tag",
-        "/category",
-        "/blog",
-        "/news",
-        "/release-notes",
-        "/sponsors",
-        "/help",
-    ]
-
-    if any(path in url_lower for path in blocked_paths):
-        return False
-
-    # ✅ Allow only real documentation sections
-    allowed_paths = [
-        "/tutorial/",
-        "/advanced/",
-        "/deployment/",
-        "/python-types/",
-        "/async/",
-        "/security/",
-    ]
-
-    return any(path in url_lower for path in allowed_paths)
 # -----------------------------
 # 5. BFS CRAWLER WITH DEPTH
 # -----------------------------
@@ -169,7 +133,7 @@ async def crawl_with_depth(start_urls):
 
             visited.add(url)
 
-            # ✅ Random delay BEFORE request
+            # Small delay before each request.
             await asyncio.sleep(random.uniform(0.5, 1.5))
 
             try:
@@ -179,6 +143,7 @@ async def crawl_with_depth(start_urls):
                     continue
 
                 html = result.html
+                print(f"Visiting: {url} | Depth: {depth} | Total: {len(visited)}")
 
                 # -------- CONTENT --------
                 soup = BeautifulSoup(html, "html.parser")
@@ -201,23 +166,20 @@ async def crawl_with_depth(start_urls):
                 links = extract_links(html, url)
 
                 for link in links:
-                    print(f"Visiting: {url} | Depth: {depth} | Total: {len(visited)}")
                     link = normalize_url(link)
 
                     if link not in visited and "windows" in link.lower():
                         queue.append((link, depth + 1))
 
             except Exception as e:
-                print(f"❌ Error: {url} -> {e}")
+                print(f"Error: {url} -> {e}")
 
     return all_docs
-
-""" <================= Chunking docs =================> """
 
 def is_valid_chunk(text):
     text_lower = text.lower().strip()
 
-    # ❌ Exact junk phrases (safe)
+    # Exact junk phrases.
     exact_blacklist = [
         "next",
         "previous",
@@ -229,16 +191,17 @@ def is_valid_chunk(text):
     if text_lower in exact_blacklist:
         return False
 
-    # ❌ Very short useless chunks
+    # Very short chunks usually add noise.
     if len(text_lower) < 30:
         return False
 
-    # ❌ Too many symbols (menus, UI junk)
+    # Too many symbols usually means menu or UI noise.
     symbol_ratio = sum(1 for c in text if not c.isalnum() and not c.isspace()) / max(len(text), 1)
     if symbol_ratio > 0.3:
         return False
 
     return True
+
 
 def chunking_docs(docs):
     chunked_data = []
@@ -264,58 +227,50 @@ def chunking_docs(docs):
                 "content": chunk,
             })
 
-    print(f"✅ Total clean chunks after dedup: {len(chunked_data)}")
+    print(f"Total clean chunks after dedup: {len(chunked_data)}")
     return chunked_data
 
-""" <================= End of chunking docs =================> """
-
-""" <================= Embedding docs =================> """
-
 def embedding_docs(docs, store):
-
     texts = [doc["content"] for doc in docs]
 
-    print("🔄 Generating embeddings in batch...")
-    embeddings = get_embending(texts)   # MUST support batch
+    print("Generating embeddings in batch...")
+    embeddings = get_embending(texts)
 
     for doc, emb in zip(docs, embeddings):
         store.add(emb, doc)
 
-    print("✅ Embeddings stored")
+    print("Embeddings stored")
 
     return store
 
-async def scrap_website(store, json_cache = "hexnode_docs.json"):
+
+async def scrap_website(store, json_cache=HEXNODE_DOCS_JSON):
     cache_path = Path(json_cache)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
 
     if cache_path.exists():
-         with open(cache_path, "r", encoding="utf-8") as f:
+        with open(cache_path, "r", encoding="utf-8") as f:
             docs = json.load(f)
-         print(f"✅ Loaded {len(docs)} documents from cache.")
+        print(f"Loaded {len(docs)} documents from cache.")
     else:
-        print("🚀 Getting initial URLs...")
+        print("Getting initial URLs...")
         start_urls = get_all_urls()
 
-        print(f"✅ Initial URLs: {len(start_urls)}")
+        print(f"Initial URLs: {len(start_urls)}")
 
-        print(f"🚀 Crawling with depth={MAX_DEPTH}...")
+        print(f"Crawling with depth={MAX_DEPTH}...")
         docs = await crawl_with_depth(start_urls)
 
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(docs, f, indent=2, ensure_ascii=False)
 
-
-
     chunked_docs = chunking_docs(docs)
     embedding_docs(chunked_docs, store)
     store.build_bm25()  # Build BM25 after all chunks added
-    store.save("vector_store.index")  # Save after embedding
-    
+    store.save(HEXNODE_VECTOR_INDEX)  # Save after embedding
+
     return True
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
-    print("executed")
-
-    # print("len of chunks is: "+str(len(chunks)))
+    print("Use initialize_vector_store() or await scrap_website(store) to build the Hexnode index.")

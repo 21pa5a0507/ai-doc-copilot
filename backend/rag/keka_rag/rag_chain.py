@@ -4,6 +4,7 @@ from functools import lru_cache
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
+from rag.gemini_models import PRIMARY_MODEL, generate_text_with_fallback, get_genai_client
 
 load_dotenv()
 
@@ -16,11 +17,10 @@ def get_llm():
         raise ValueError("GOOGLE_API_KEY not set")
 
     return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash-lite",
+        model=PRIMARY_MODEL,
         temperature=0.3,
         google_api_key=api_key
     )
-
 
 def get_rag_chain(retriever):
 
@@ -43,6 +43,7 @@ Answer:
 """)
 
     llm = get_llm()
+    client = get_genai_client()
 
     def format_docs(docs):
         return "\n\n".join(
@@ -54,19 +55,26 @@ Answer:
         docs = retriever.invoke(query)
 
         if debug:
-            print("\n🔍 Retrieved docs:")
+            print("\nRetrieved docs:")
             for d in docs:
                 print(d.metadata)
 
         context = format_docs(docs)
-
-        response = llm.invoke(
-            prompt.format(
-                context=context,
-                question=query
-            )
+        rendered_prompt = prompt.format(
+            context=context,
+            question=query
         )
 
-        return response.content
+        try:
+            response = llm.invoke(rendered_prompt)
+            return response.content
+        except Exception as exc:
+            print(f"Keka rag_chain fallback triggered: {exc}")
+
+        answer = generate_text_with_fallback(client, rendered_prompt)
+        if answer:
+            return answer
+
+        return "I don't know"
 
     return run

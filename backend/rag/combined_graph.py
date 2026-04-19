@@ -9,6 +9,7 @@ except ImportError:  # pragma: no cover - handled by caller if langgraph is unav
     END = START = StateGraph = None
 
 from rag.answer_generator import generate_answer
+from rag.gemini_models import generate_text_with_fallback, get_genai_client
 from rag.hexnode_tools import handle_hexnode_question
 from rag.keka_rag.rag_chain import get_llm
 from rag.keka_rag.tools import handle_keka_question
@@ -27,6 +28,42 @@ class CombinedGraphRuntime:
     graph: Any
 
 
+def _content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+
+    if content is None:
+        return ""
+
+    if isinstance(content, list):
+        parts: List[str] = []
+
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+            else:
+                text = getattr(item, "text", None) or getattr(item, "content", None)
+                if isinstance(text, str):
+                    parts.append(text)
+
+        return "\n".join(part for part in parts if part).strip()
+
+    if isinstance(content, dict):
+        text = content.get("text") or content.get("content")
+        if isinstance(text, str):
+            return text
+
+    text = getattr(content, "text", None) or getattr(content, "content", None)
+    if isinstance(text, str):
+        return text
+
+    return str(content)
+
+
 def _tag_chunks(chunks: List[Dict[str, Any]], kb_source: str, kb_source_label: str) -> List[Dict[str, Any]]:
     tagged_chunks: List[Dict[str, Any]] = []
 
@@ -43,7 +80,7 @@ def _format_result_section(title: str, result: Optional[Dict[str, Any]]) -> str:
     if not result:
         return f"{title} answer:\nInformation not available."
 
-    answer = (result.get("answer") or "").strip() or "Information not found."
+    answer = _content_to_text(result.get("answer")).strip() or "Information not found."
     chunks = result.get("chunks") or []
 
     if chunks:
@@ -134,16 +171,21 @@ Answer:
         )
 
         llm = get_llm()
-        response = llm.invoke(
-            prompt.format(
-                question=state["question"],
-                hexnode_section=_format_result_section("Hexnode", hexnode_result),
-                keka_section=_format_result_section("Keka", keka_result),
-            )
+        client = get_genai_client()
+        rendered_prompt = prompt.format(
+            question=state["question"],
+            hexnode_section=_format_result_section("Hexnode", hexnode_result),
+            keka_section=_format_result_section("Keka", keka_result),
         )
+        try:
+            response = llm.invoke(rendered_prompt)
+            final_answer = _content_to_text(response.content)
+        except Exception as exc:
+            print(f"Combined graph synthesize fallback triggered: {exc}")
+            final_answer = generate_text_with_fallback(client, rendered_prompt) or "Information not found."
 
         return {
-            "final_answer": response.content,
+            "final_answer": final_answer,
             "chunks": combined_chunks,
         }
 

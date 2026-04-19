@@ -22,12 +22,12 @@ def chunk_text(text, chunk_size=400, overlap_words=80, min_chunk_size=80):
 
     for para in paragraphs:
 
-        # ✅ Keep small paragraphs (merge instead of removing)
+        # Keep small paragraphs by merging them into the current chunk.
         if len(para) < 40:
             current_chunk += " " + para
             continue
 
-        # ✅ Handle large paragraphs
+        # Split large paragraphs by sentence.
         if len(para) > chunk_size:
             sentences = split_sentences(para)
 
@@ -43,7 +43,7 @@ def chunk_text(text, chunk_size=400, overlap_words=80, min_chunk_size=80):
 
             continue
 
-        # ✅ Normal case
+        # Normal case
         if len(current_chunk) + len(para) <= chunk_size:
             current_chunk += " " + para
         else:
@@ -53,7 +53,7 @@ def chunk_text(text, chunk_size=400, overlap_words=80, min_chunk_size=80):
             overlap_text = get_overlap_text(current_chunk, overlap_words)
             current_chunk = overlap_text + " " + para
 
-    # ✅ Final chunk
+    # Final chunk
     if len(current_chunk.strip()) >= min_chunk_size:
         chunks.append(current_chunk.strip())
 

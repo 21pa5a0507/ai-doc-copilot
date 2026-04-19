@@ -10,16 +10,18 @@ if sys.platform.startswith("win"):
 
 from fastapi import FastAPI
 from rag.rag_initializer import initialize_vector_store
-from rag.answer_generator import generate_answer, rewrite_query
+from rag.answer_generator import generate_answer
 from rag.combined_graph import build_combined_graph_runtime, run_combined_graph
 from rag.hexnode_graph import build_hexnode_graph_runtime
 from rag.hexnode_tools import handle_hexnode_question
 from rag.keka_rag.service import initialize_keka_service
 from rag.keka_rag.tools import handle_keka_question
 from fastapi.middleware.cors import CORSMiddleware
+from config.paths import ensure_storage_dirs
 
 
 from pydantic import BaseModel
+
 
 class Query(BaseModel):
     question: str
@@ -47,7 +49,7 @@ combined_graph_runtime = None
 def init_keka_pipeline():
     global keka_agent, keka_rag_chain, keka_retriever
 
-    if keka_agent is not None and keka_rag_chain is not None and keka_retriever is not None:
+    if keka_agent is not None and keka_retriever is not None and keka_rag_chain is not None:
         return
 
     keka_service = initialize_keka_service()
@@ -93,30 +95,31 @@ def init_combined_graph():
 @app.on_event("startup")
 async def startup_event():
     global vector_store
+    ensure_storage_dirs()
     vector_store = await initialize_vector_store()
     print("Vectors stored:", vector_store.index.ntotal)
 
     try:
         init_hexnode_graph()
-    except ValueError as e:
-        print(f"⚠️ Hexnode graph skipped: {e}")
-    except Exception as e:
-        print(f"⚠️ Hexnode graph failed to initialize: {e}")
+    except ValueError as exc:
+        print(f"Hexnode graph skipped: {exc}")
+    except Exception as exc:
+        print(f"Hexnode graph failed to initialize: {exc}")
 
     # Preload Keka RAG pipeline so source switching is ready immediately.
     try:
         init_keka_pipeline()
-    except ValueError as e:
-        print(f"⚠️ Keka RAG skipped: {e}")
-    except Exception as e:
-        print(f"⚠️ Keka RAG failed to initialize: {e}")
+    except ValueError as exc:
+        print(f"Keka RAG skipped: {exc}")
+    except Exception as exc:
+        print(f"Keka RAG failed to initialize: {exc}")
 
     try:
         init_combined_graph()
-    except ValueError as e:
-        print(f"⚠️ Combined graph skipped: {e}")
-    except Exception as e:
-        print(f"⚠️ Combined graph failed to initialize: {e}")
+    except ValueError as exc:
+        print(f"Combined graph skipped: {exc}")
+    except Exception as exc:
+        print(f"Combined graph failed to initialize: {exc}")
 
 
 @app.post("/ask")
@@ -157,7 +160,7 @@ def ask(query: Query):
                 "question": question,
                 "chunks": [],
                 "answer": "❌ Keka RAG not available. Please set GOOGLE_API_KEY environment variable.",
-                "source": query.source
+                "source": query.source,
             }
 
         response = handle_keka_question(question, keka_retriever, keka_rag_chain, agent=keka_agent)
@@ -167,7 +170,7 @@ def ask(query: Query):
                 "question": question,
                 "chunks": [],
                 "answer": "❌ Hexnode knowledge base is not initialized yet. Start the vector-store setup or enable the startup initializer before asking default-source questions.",
-                "source": query.source
+                "source": query.source,
             }
 
         response = handle_hexnode_question(

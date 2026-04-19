@@ -12,5 +12,5 @@ def split_documents(documents):
 
     chunks = splitter.split_documents(documents)
 
-    print(f"✅ Created {len(chunks)} chunks")
+    print(f"Created {len(chunks)} chunks")
     return chunks

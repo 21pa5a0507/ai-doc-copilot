@@ -27,6 +27,51 @@ const SUGGESTED_PROMPTS = [
   "What should a new employee know about device setup and HR onboarding policies?",
 ];
 
+const contentToText = (content) => {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (content == null) {
+    return "";
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+
+        if (item && typeof item === "object") {
+          if (typeof item.text === "string") {
+            return item.text;
+          }
+
+          if (typeof item.content === "string") {
+            return item.content;
+          }
+        }
+
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  if (typeof content === "object") {
+    if (typeof content.text === "string") {
+      return content.text;
+    }
+
+    if (typeof content.content === "string") {
+      return content.content;
+    }
+  }
+
+  return String(content);
+};
+
 export default function ChatBox({ setSources, messages, setMessages, setIsLoadedChat }) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -34,7 +79,30 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
 
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+  const typingIntervalRef = useRef(null);
   const selectedSource = SOURCE_OPTIONS.find((item) => item.value === source) || SOURCE_OPTIONS[0];
+
+  const updateLastMessageText = (text) => {
+    setMessages((prev) => {
+      if (prev.length === 0) {
+        return prev;
+      }
+
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        ...updated[updated.length - 1],
+        text,
+      };
+      return updated;
+    });
+  };
+
+  const stopTypingAnimation = () => {
+    if (typingIntervalRef.current) {
+      clearInterval(typingIntervalRef.current);
+      typingIntervalRef.current = null;
+    }
+  };
 
   const syncTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -54,48 +122,38 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
     syncTextareaHeight();
   }, [question]);
 
-  const typeMessage = (text, callback) => {
-    const safeText =
-      typeof text === "string"
-        ? text
-        : text == null
-          ? ""
-          : JSON.stringify(text, null, 2);
+  useEffect(() => () => stopTypingAnimation(), []);
+
+  const typeMessage = (text) => {
+    const safeText = contentToText(text);
+
+    stopTypingAnimation();
 
     if (!safeText) {
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1].text = "";
-        return updated;
-      });
-      callback && callback();
+      updateLastMessageText("");
       return;
     }
 
     let index = 0;
     let currentText = "";
 
-    const interval = setInterval(() => {
+    typingIntervalRef.current = setInterval(() => {
       currentText += safeText[index];
       index++;
 
-      setMessages((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1].text = currentText;
-        return updated;
-      });
+      updateLastMessageText(currentText);
 
       if (index === safeText.length) {
-        clearInterval(interval);
-        callback && callback();
+        stopTypingAnimation();
       }
     }, 15); // speed (lower = faster)
   };
 
   const handleAsk = async () => {
-    if (!question.trim()) return;
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion || loading) return;
 
-    const userMessage = { role: "user", text: question };
+    const userMessage = { role: "user", text: trimmedQuestion };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setIsLoadedChat(false);
@@ -103,7 +161,7 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
     setLoading(true);
 
     try {
-      const data = await askQuestion(question, source);
+      const data = await askQuestion(trimmedQuestion, source);
 
       setMessages((prev) => {
         const updated = [...prev, { role: "ai", text: "" }];
@@ -119,9 +177,9 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
     } catch (err) {
       console.error(err);
       setMessages((prev) => [...prev, { role: "ai", text: "Sorry, an error occurred." }]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
