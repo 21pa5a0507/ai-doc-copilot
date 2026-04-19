@@ -1,10 +1,15 @@
 import faiss
 import numpy as np
-from rank_bm25 import BM25Okapi
-from sentence_transformers import CrossEncoder
+import logging
 import os
 import pickle
 from pathlib import Path
+
+from rank_bm25 import BM25Okapi
+from sentence_transformers import CrossEncoder
+
+
+logger = logging.getLogger(__name__)
 
 # -------------------------------
 # Reranker
@@ -100,11 +105,11 @@ class VectorStore:
     # -----------------------------
     def build_bm25(self):
         if not self.tokenized_chunks:
-            print("No chunks for BM25")
+            logger.info("Skipping BM25 build because no chunks were loaded")
             return
 
         self.bm25 = BM25Okapi(self.tokenized_chunks)
-        print(f"BM25 built on {len(self.tokenized_chunks)} chunks")
+        logger.info("BM25 built on %s chunks", len(self.tokenized_chunks))
 
     # -----------------------------
     # SEARCH (HYBRID)
@@ -194,11 +199,11 @@ class VectorStore:
                 break
 
         reranked = self.reranker.rerank(query, final_results, top_k=top_k)
-        print(
-            "Hybrid search candidates: "
-            f"vector={len(vector_results)}, "
-            f"bm25={len(bm25_results)}, "
-            f"unique={len(final_results)}, "
-            f"reranked={len(reranked)}"
+        logger.info(
+            "Hybrid search candidates: vector=%s, bm25=%s, unique=%s, reranked=%s",
+            len(vector_results),
+            len(bm25_results),
+            len(final_results),
+            len(reranked),
         )
         return reranked

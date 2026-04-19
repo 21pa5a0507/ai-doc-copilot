@@ -1,32 +1,22 @@
 import os
+import sys
+import logging
+
 from dotenv import load_dotenv
+
+if __package__ in {None, ""}:
+    # Allow this module to be run directly via `python backend/rag/answer_generator.py`.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from rag.gemini_models import PRIMARY_MODEL, generate_text_with_fallback, get_genai_client
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 client = get_genai_client()
 
 MODEL_NAME = PRIMARY_MODEL
-
-
-def rewrite_query(user_query):
-    prompt = f"""
-    Rewrite the user question into a concise search-friendly query.
-    Preserve the original meaning.
-    Do not add new details.
-
-    Query: {user_query}
-    Rewritten:
-    """
-    try:
-        rewritten = generate_text_with_fallback(client, prompt)
-        if not rewritten:
-            return user_query.strip()
-        print(f"Rewritten query: {rewritten}")
-        return rewritten
-    except Exception as exc:
-        print(f"Query rewrite failed: {exc}")
-        return user_query.strip()
 
 
 def generate_answer(question, chunks, mode="answer"):
@@ -114,7 +104,7 @@ def generate_answer(question, chunks, mode="answer"):
         if answer:
             return answer
     except Exception as exc:
-        print(f"Answer generation failed: {exc}")
+        logger.warning("Answer generation failed: %s", exc)
 
     if not chunks:
         return "Information not found."

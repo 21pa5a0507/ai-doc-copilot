@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { askQuestion } from "../api/ragApi";
 import Message from "./Message";
+import { contentToText } from "../utils/messageContent";
 
 const SOURCE_OPTIONS = [
   {
@@ -23,54 +24,7 @@ const SOURCE_OPTIONS = [
 const SUGGESTED_PROMPTS = [
   "How to enroll a Windows device via open enrollment?",
   "Explain the Profit-Sharing Program in simple points",
-  "How to apply the SCEP certificate policy?",
-  "What should a new employee know about device setup and HR onboarding policies?",
 ];
-
-const contentToText = (content) => {
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (content == null) {
-    return "";
-  }
-
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (typeof item === "string") {
-          return item;
-        }
-
-        if (item && typeof item === "object") {
-          if (typeof item.text === "string") {
-            return item.text;
-          }
-
-          if (typeof item.content === "string") {
-            return item.content;
-          }
-        }
-
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n\n");
-  }
-
-  if (typeof content === "object") {
-    if (typeof content.text === "string") {
-      return content.text;
-    }
-
-    if (typeof content.content === "string") {
-      return content.content;
-    }
-  }
-
-  return String(content);
-};
 
 export default function ChatBox({ setSources, messages, setMessages, setIsLoadedChat }) {
   const [question, setQuestion] = useState("");

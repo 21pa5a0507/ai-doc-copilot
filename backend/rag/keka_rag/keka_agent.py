@@ -6,6 +6,7 @@ from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 
+from rag.content import content_to_text
 from rag.keka_rag.rag_chain import get_llm
 from rag.keka_rag.tools import (
     get_keka_process_steps,
@@ -35,32 +36,6 @@ _REQUEST_STATE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     "keka_agent_request_state",
     default=None,
 )
-
-
-def _content_to_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text")
-                if text:
-                    parts.append(text)
-            else:
-                text = getattr(item, "text", None)
-                if text:
-                    parts.append(text)
-        return "\n".join(part for part in parts if part).strip()
-
-    text = getattr(content, "text", None)
-    if isinstance(text, str):
-        return text
-
-    return str(content) if content is not None else ""
 
 
 def _store_tool_result(result: Dict[str, Any], tool_name: str, args: Dict[str, Any]) -> None:
@@ -147,14 +122,18 @@ def run_keka_agent(question: str, agent, rag_chain) -> Dict[str, Any]:
     final_answer = ""
     for message in reversed(result.get("messages", [])):
         if isinstance(message, AIMessage) and not getattr(message, "tool_calls", None):
-            final_answer = _content_to_text(message.content)
+            final_answer = content_to_text(message.content)
             break
 
     latest_tool_result = dict(request_state["latest_tool_result"])
     tool_trace: List[Dict[str, Any]] = list(request_state["tool_trace"])
 
     if not final_answer:
-        final_answer = rag_chain(question, debug=False)
+        context = latest_tool_result.get("formatted_context", "")
+        if context and hasattr(rag_chain, "answer_with_context"):
+            final_answer = rag_chain.answer_with_context(question, context)
+        else:
+            final_answer = rag_chain(question, debug=False)
 
     return {
         "question": question,

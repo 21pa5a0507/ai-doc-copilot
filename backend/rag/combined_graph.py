@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TypedDict
 
 from langchain_core.prompts import ChatPromptTemplate
+import logging
 
 try:
     from langgraph.graph import END, START, StateGraph
@@ -9,10 +10,14 @@ except ImportError:  # pragma: no cover - handled by caller if langgraph is unav
     END = START = StateGraph = None
 
 from rag.answer_generator import generate_answer
+from rag.content import content_to_text
 from rag.gemini_models import generate_text_with_fallback, get_genai_client
 from rag.hexnode_tools import handle_hexnode_question
 from rag.keka_rag.rag_chain import get_llm
 from rag.keka_rag.tools import handle_keka_question
+
+
+logger = logging.getLogger(__name__)
 
 
 class CombinedGraphState(TypedDict):
@@ -28,59 +33,23 @@ class CombinedGraphRuntime:
     graph: Any
 
 
-def _content_to_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-
-    if content is None:
-        return ""
-
-    if isinstance(content, list):
-        parts: List[str] = []
-
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text") or item.get("content")
-                if isinstance(text, str):
-                    parts.append(text)
-            else:
-                text = getattr(item, "text", None) or getattr(item, "content", None)
-                if isinstance(text, str):
-                    parts.append(text)
-
-        return "\n".join(part for part in parts if part).strip()
-
-    if isinstance(content, dict):
-        text = content.get("text") or content.get("content")
-        if isinstance(text, str):
-            return text
-
-    text = getattr(content, "text", None) or getattr(content, "content", None)
-    if isinstance(text, str):
-        return text
-
-    return str(content)
-
-
-def _tag_chunks(chunks: List[Dict[str, Any]], kb_source: str, kb_source_label: str) -> List[Dict[str, Any]]:
-    tagged_chunks: List[Dict[str, Any]] = []
+def _with_source_labels(chunks: List[Dict[str, Any]], source: str, label: str) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
 
     for chunk in chunks:
-        tagged_chunk = dict(chunk)
-        tagged_chunk["kb_source"] = kb_source
-        tagged_chunk["kb_source_label"] = kb_source_label
-        tagged_chunks.append(tagged_chunk)
+        item = dict(chunk)
+        item["kb_source"] = source
+        item["kb_source_label"] = label
+        result.append(item)
 
-    return tagged_chunks
+    return result
 
 
 def _format_result_section(title: str, result: Optional[Dict[str, Any]]) -> str:
     if not result:
         return f"{title} answer:\nInformation not available."
 
-    answer = _content_to_text(result.get("answer")).strip() or "Information not found."
+    answer = content_to_text(result.get("answer")).strip() or "Information not found."
     chunks = result.get("chunks") or []
 
     if chunks:
@@ -134,11 +103,11 @@ def build_combined_graph_runtime(
         hexnode_result = state.get("hexnode_result") or {}
         keka_result = state.get("keka_result") or {}
 
-        combined_chunks = _tag_chunks(
+        combined_chunks = _with_source_labels(
             hexnode_result.get("chunks", []),
             "hexnode",
             "Hexnode Docs",
-        ) + _tag_chunks(
+        ) + _with_source_labels(
             keka_result.get("chunks", []),
             "keka",
             "Keka Policies",
@@ -152,8 +121,12 @@ Use ONLY the source-specific answers and evidence provided below.
 
 Rules:
 - Keep the answer grounded in the provided material.
+- Include a source only when it directly helps answer some part of the question.
 - If both sources are useful, organize the answer with short markdown headings.
-- If only one source is useful, say that directly instead of forcing both.
+- If only one source is useful, answer with that source only.
+- Do not add statements saying the other source does not contain the answer unless the user explicitly asks for a cross-source comparison.
+- For multi-part questions, answer each part with the relevant source and do not force artificial overlap.
+- Keep the answer concise and avoid repeating which source did not help.
 - Do not invent links, policy details, or setup steps.
 - End with a short combined takeaway only when it genuinely helps the user.
 
@@ -179,9 +152,9 @@ Answer:
         )
         try:
             response = llm.invoke(rendered_prompt)
-            final_answer = _content_to_text(response.content)
+            final_answer = content_to_text(response.content)
         except Exception as exc:
-            print(f"Combined graph synthesize fallback triggered: {exc}")
+            logger.warning("Combined graph synthesize fallback triggered: %s", exc)
             final_answer = generate_text_with_fallback(client, rendered_prompt) or "Information not found."
 
         return {

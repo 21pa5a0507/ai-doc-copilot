@@ -1,4 +1,9 @@
+import logging
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+
+logger = logging.getLogger(__name__)
 
 
 def split_documents(documents):
@@ -12,5 +17,5 @@ def split_documents(documents):
 
     chunks = splitter.split_documents(documents)
 
-    print(f"Created {len(chunks)} chunks")
+    logger.info("Created %s Keka chunks", len(chunks))
     return chunks

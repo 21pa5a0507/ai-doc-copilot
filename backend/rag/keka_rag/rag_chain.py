@@ -1,25 +1,25 @@
-import os
 from functools import lru_cache
 
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from rag.gemini_models import PRIMARY_MODEL, generate_text_with_fallback, get_genai_client
+from rag.content import content_to_text
+from rag.gemini_models import (
+    PRIMARY_MODEL,
+    generate_text_with_fallback,
+    get_genai_client,
+    get_google_api_key,
+)
 
 load_dotenv()
 
 
 @lru_cache(maxsize=1)
 def get_llm():
-    api_key = os.getenv("GOOGLE_API_KEY")
-
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY not set")
-
     return ChatGoogleGenerativeAI(
         model=PRIMARY_MODEL,
         temperature=0.3,
-        google_api_key=api_key
+        google_api_key=get_google_api_key(),
     )
 
 def get_rag_chain(retriever):
@@ -51,6 +51,24 @@ Answer:
             for d in docs
         )
 
+    def answer_with_context(query: str, context: str):
+        rendered_prompt = prompt.format(
+            context=context,
+            question=query
+        )
+
+        try:
+            response = llm.invoke(rendered_prompt)
+            return content_to_text(response.content)
+        except Exception as exc:
+            print(f"Keka rag_chain fallback triggered: {exc}")
+
+        answer = generate_text_with_fallback(client, rendered_prompt)
+        if answer:
+            return answer
+
+        return "I don't know"
+
     def run(query: str, debug: bool = False):
         docs = retriever.invoke(query)
 
@@ -60,21 +78,8 @@ Answer:
                 print(d.metadata)
 
         context = format_docs(docs)
-        rendered_prompt = prompt.format(
-            context=context,
-            question=query
-        )
+        return answer_with_context(query, context)
 
-        try:
-            response = llm.invoke(rendered_prompt)
-            return response.content
-        except Exception as exc:
-            print(f"Keka rag_chain fallback triggered: {exc}")
-
-        answer = generate_text_with_fallback(client, rendered_prompt)
-        if answer:
-            return answer
-
-        return "I don't know"
+    run.answer_with_context = answer_with_context
 
     return run

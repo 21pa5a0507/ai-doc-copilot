@@ -1,16 +1,22 @@
 from crawl4ai import AsyncWebCrawler
-from urllib.parse import urljoin, urlparse
 import asyncio
-from collections import deque
-from bs4 import BeautifulSoup
 import json
-import requests
+import logging
 import random
+from collections import deque
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+import requests
+from bs4 import BeautifulSoup
+
 from config.paths import HEXNODE_DOCS_JSON, HEXNODE_VECTOR_INDEX
 from rag.cleaner import clean_text
 from rag.chunker import chunk_text
-from rag.embendings import get_embending
+from rag.embeddings import get_embedding
+
+
+logger = logging.getLogger(__name__)
 
 SITEMAP_URL = "https://www.hexnode.com/mobile-device-management/help/category-sitemap.xml"
 BASE_DOMAIN = "hexnode.com"
@@ -32,7 +38,7 @@ def get_all_urls():
         if "windows" in url.lower()
     ]
 
-    print(f"Windows URLs: {len(windows_urls)}")
+    logger.info("Collected %s Windows Hexnode URLs from sitemap", len(windows_urls))
     return windows_urls
 
 
@@ -102,7 +108,8 @@ def chunk_by_headings(main_tag, page_title="", url=""):
     if current_content:
         chunks.append({
             "title": current_heading,
-            "content": " ".join(current_content)
+            "content": " ".join(current_content),
+            "url": url,
         })
 
     return chunks
@@ -143,7 +150,7 @@ async def crawl_with_depth(start_urls):
                     continue
 
                 html = result.html
-                print(f"Visiting: {url} | Depth: {depth} | Total: {len(visited)}")
+                logger.info("Visiting %s at depth %s (%s pages visited)", url, depth, len(visited))
 
                 # -------- CONTENT --------
                 soup = BeautifulSoup(html, "html.parser")
@@ -171,8 +178,8 @@ async def crawl_with_depth(start_urls):
                     if link not in visited and "windows" in link.lower():
                         queue.append((link, depth + 1))
 
-            except Exception as e:
-                print(f"Error: {url} -> {e}")
+            except Exception as exc:
+                logger.warning("Failed to crawl %s: %s", url, exc)
 
     return all_docs
 
@@ -227,19 +234,19 @@ def chunking_docs(docs):
                 "content": chunk,
             })
 
-    print(f"Total clean chunks after dedup: {len(chunked_data)}")
+    logger.info("Prepared %s clean chunks after deduplication", len(chunked_data))
     return chunked_data
 
 def embedding_docs(docs, store):
     texts = [doc["content"] for doc in docs]
 
-    print("Generating embeddings in batch...")
-    embeddings = get_embending(texts)
+    logger.info("Generating embeddings for %s chunks", len(docs))
+    embeddings = get_embedding(texts)
 
     for doc, emb in zip(docs, embeddings):
         store.add(emb, doc)
 
-    print("Embeddings stored")
+    logger.info("Embeddings stored")
 
     return store
 
@@ -251,14 +258,14 @@ async def scrap_website(store, json_cache=HEXNODE_DOCS_JSON):
     if cache_path.exists():
         with open(cache_path, "r", encoding="utf-8") as f:
             docs = json.load(f)
-        print(f"Loaded {len(docs)} documents from cache.")
+        logger.info("Loaded %s Hexnode documents from cache", len(docs))
     else:
-        print("Getting initial URLs...")
+        logger.info("Fetching initial Hexnode URLs")
         start_urls = get_all_urls()
 
-        print(f"Initial URLs: {len(start_urls)}")
+        logger.info("Starting crawl with %s initial URLs", len(start_urls))
 
-        print(f"Crawling with depth={MAX_DEPTH}...")
+        logger.info("Crawling Hexnode docs with max depth %s", MAX_DEPTH)
         docs = await crawl_with_depth(start_urls)
 
         with open(cache_path, "w", encoding="utf-8") as f:

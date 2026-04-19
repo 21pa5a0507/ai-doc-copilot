@@ -1,7 +1,12 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate
 
 from rag.gemini_models import generate_text_with_fallback, get_genai_client
 from rag.keka_rag.rag_chain import get_llm
+
+
+logger = logging.getLogger(__name__)
 
 
 def format_keka_chunks(docs):
@@ -130,7 +135,7 @@ Answer:
         response = llm.invoke(rendered_prompt)
         answer = response.content
     except Exception as exc:
-        print(f"Keka process-steps fallback triggered: {exc}")
+        logger.warning("Keka process-steps fallback triggered: %s", exc)
         answer = generate_text_with_fallback(client, rendered_prompt) or "I don't know"
 
     return {
@@ -151,12 +156,11 @@ def handle_keka_question(question, retriever, rag_chain, agent=None):
         active_agent = agent or build_keka_agent(retriever)
         return run_keka_agent(question, active_agent, rag_chain)
     except Exception as exc:
-        print(f"Keka agent fallback triggered: {exc}")
+        logger.warning("Keka agent fallback triggered: %s", exc)
 
     tool_result = search_keka_policies(question, retriever)
     chunks = tool_result["chunks"]
-    print(f"Keka retrieved {len(chunks)} docs for question: {question}")
-    print(f"Tool used: {tool_result['tool_name']}")
+    logger.info("Keka retrieval used %s and returned %s docs", tool_result["tool_name"], len(chunks))
 
     return {
         "question": question,

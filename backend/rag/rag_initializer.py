@@ -1,6 +1,11 @@
+import logging
+
 from rag.vector_store import VectorStore
 from rag.scraper import scrap_website
 from config.paths import HEXNODE_VECTOR_INDEX
+
+
+logger = logging.getLogger(__name__)
 
 
 async def initialize_vector_store(index_path=HEXNODE_VECTOR_INDEX):
@@ -8,13 +13,12 @@ async def initialize_vector_store(index_path=HEXNODE_VECTOR_INDEX):
 
     # Try loading an existing index first.
     if store.load(index_path):
-        print("Loaded existing vector store")
-        print("Vectors:", store.index.ntotal)
+        logger.info("Loaded existing Hexnode vector store with %s vectors", store.index.ntotal)
         return store
     
-    print("No index found. Creating new embeddings...")
+    logger.info("No Hexnode index found. Building a new vector store")
 
     await scrap_website(store)
 
-    print("New vector store created")
+    logger.info("Created new Hexnode vector store")
     return store

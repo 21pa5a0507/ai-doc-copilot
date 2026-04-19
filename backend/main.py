@@ -2,7 +2,18 @@ import asyncio
 import sys
 import logging
 
-logging.basicConfig(level=logging.INFO)
+from config.paths import BACKEND_LOG_FILE, ensure_storage_dirs
+
+
+ensure_storage_dirs()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    handlers=[
+        logging.FileHandler(BACKEND_LOG_FILE, encoding="utf-8"),
+    ],
+)
 logger = logging.getLogger(__name__)
 
 if sys.platform.startswith("win"):
@@ -17,7 +28,6 @@ from rag.hexnode_tools import handle_hexnode_question
 from rag.keka_rag.service import initialize_keka_service
 from rag.keka_rag.tools import handle_keka_question
 from fastapi.middleware.cors import CORSMiddleware
-from config.paths import ensure_storage_dirs
 
 
 from pydantic import BaseModel
@@ -44,18 +54,25 @@ keka_retriever = None
 keka_agent = None
 hexnode_graph_runtime = None
 combined_graph_runtime = None
+last_keka_init_error = None
+last_combined_init_error = None
 
 
 def init_keka_pipeline():
-    global keka_agent, keka_rag_chain, keka_retriever
+    global keka_agent, keka_rag_chain, keka_retriever, last_keka_init_error
 
     if keka_agent is not None and keka_retriever is not None and keka_rag_chain is not None:
         return
 
-    keka_service = initialize_keka_service()
-    keka_retriever = keka_service.retriever
-    keka_rag_chain = keka_service.rag_chain
-    keka_agent = keka_service.agent
+    try:
+        keka_service = initialize_keka_service()
+        keka_retriever = keka_service.retriever
+        keka_rag_chain = keka_service.rag_chain
+        keka_agent = keka_service.agent
+        last_keka_init_error = None
+    except Exception as exc:
+        last_keka_init_error = str(exc)
+        raise
 
 
 def init_hexnode_graph():
@@ -68,7 +85,7 @@ def init_hexnode_graph():
 
 
 def init_combined_graph():
-    global combined_graph_runtime
+    global combined_graph_runtime, last_combined_init_error
 
     if combined_graph_runtime is not None:
         return
@@ -82,13 +99,51 @@ def init_combined_graph():
     ):
         return
 
-    combined_graph_runtime = build_combined_graph_runtime(
-        vector_store,
-        keka_retriever,
-        keka_rag_chain,
-        keka_agent,
-        hexnode_graph_runtime=hexnode_graph_runtime,
-    )
+    try:
+        combined_graph_runtime = build_combined_graph_runtime(
+            vector_store,
+            keka_retriever,
+            keka_rag_chain,
+            keka_agent,
+            hexnode_graph_runtime=hexnode_graph_runtime,
+        )
+        last_combined_init_error = None
+    except Exception as exc:
+        last_combined_init_error = str(exc)
+        raise
+
+
+def ensure_keka_ready():
+    if keka_agent is not None and keka_retriever is not None and keka_rag_chain is not None:
+        return None
+
+    try:
+        init_keka_pipeline()
+        return None
+    except Exception as exc:
+        logger.exception("Keka RAG initialization failed during request: %s", exc)
+        return str(exc)
+
+
+def ensure_combined_ready():
+    if hexnode_graph_runtime is None and vector_store is not None:
+        try:
+            init_hexnode_graph()
+        except Exception as exc:
+            logger.exception("Hexnode graph initialization failed during request: %s", exc)
+
+    keka_error = ensure_keka_ready()
+    if keka_error:
+        return keka_error
+
+    if combined_graph_runtime is None:
+        try:
+            init_combined_graph()
+        except Exception as exc:
+            logger.exception("Combined graph initialization failed during request: %s", exc)
+            return str(exc)
+
+    return None
 
 
 # Run scraper once when server starts
@@ -97,34 +152,34 @@ async def startup_event():
     global vector_store
     ensure_storage_dirs()
     vector_store = await initialize_vector_store()
-    print("Vectors stored:", vector_store.index.ntotal)
+    logger.info("Hexnode vector store ready with %s vectors", vector_store.index.ntotal)
 
     try:
         init_hexnode_graph()
     except ValueError as exc:
-        print(f"Hexnode graph skipped: {exc}")
+        logger.warning("Hexnode graph skipped: %s", exc)
     except Exception as exc:
-        print(f"Hexnode graph failed to initialize: {exc}")
+        logger.exception("Hexnode graph failed to initialize: %s", exc)
 
     # Preload Keka RAG pipeline so source switching is ready immediately.
     try:
         init_keka_pipeline()
     except ValueError as exc:
-        print(f"Keka RAG skipped: {exc}")
+        logger.warning("Keka RAG skipped: %s", exc)
     except Exception as exc:
-        print(f"Keka RAG failed to initialize: {exc}")
+        logger.exception("Keka RAG failed to initialize: %s", exc)
 
     try:
         init_combined_graph()
     except ValueError as exc:
-        print(f"Combined graph skipped: {exc}")
+        logger.warning("Combined graph skipped: %s", exc)
     except Exception as exc:
-        print(f"Combined graph failed to initialize: {exc}")
+        logger.exception("Combined graph failed to initialize: %s", exc)
 
 
 @app.post("/ask")
 def ask(query: Query):
-    print(f"Received question: {query.question} (source={query.source})")
+    logger.info("Received question for source=%s", query.source)
     question = query.question
     normalized_source = query.source.lower()
 
@@ -137,11 +192,12 @@ def ask(query: Query):
                 "source": query.source,
             }
 
-        if keka_agent is None or keka_retriever is None or keka_rag_chain is None:
+        combined_error = ensure_combined_ready()
+        if combined_error:
             return {
                 "question": question,
                 "chunks": [],
-                "answer": "❌ Keka RAG not available. Please set GOOGLE_API_KEY environment variable before asking combined questions.",
+                "answer": f"❌ Keka RAG not available right now. Initialization failed with: {combined_error}",
                 "source": query.source,
             }
 
@@ -155,11 +211,12 @@ def ask(query: Query):
             hexnode_graph_runtime=hexnode_graph_runtime,
         )
     elif normalized_source in {"keka", "keka_rag"}:
-        if keka_agent is None or keka_retriever is None or keka_rag_chain is None:
+        keka_error = ensure_keka_ready()
+        if keka_error:
             return {
                 "question": question,
                 "chunks": [],
-                "answer": "❌ Keka RAG not available. Please set GOOGLE_API_KEY environment variable.",
+                "answer": f"❌ Keka RAG not available right now. Initialization failed with: {keka_error}",
                 "source": query.source,
             }
 

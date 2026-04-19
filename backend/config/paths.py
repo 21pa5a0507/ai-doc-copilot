@@ -5,6 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = PROJECT_ROOT / "backend"
 SOURCE_DATA_DIR = PROJECT_ROOT / "keka_data"
 STORAGE_DIR = PROJECT_ROOT / "storage"
+BACKEND_LOG_FILE = STORAGE_DIR / "backend.log"
 
 HEXNODE_DIR = STORAGE_DIR / "hexnode"
 HEXNODE_RAW_DIR = HEXNODE_DIR / "raw"

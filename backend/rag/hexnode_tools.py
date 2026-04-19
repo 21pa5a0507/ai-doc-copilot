@@ -1,5 +1,10 @@
-from rag.embendings import get_embending as embed_text
+import logging
+
+from rag.embeddings import get_embedding as embed_text
 from rag.answer_generator import generate_answer
+
+
+logger = logging.getLogger(__name__)
 
 
 def format_hexnode_chunks(chunks):
@@ -114,7 +119,7 @@ def handle_hexnode_question(question, vector_store, answer_generator, graph_runt
 
         return run_hexnode_graph(question, vector_store, runtime=graph_runtime)
     except Exception as exc:
-        print(f"Hexnode graph fallback triggered: {exc}")
+        logger.warning("Hexnode graph fallback triggered: %s", exc)
 
     lowered_question = question.lower()
 
@@ -165,8 +170,7 @@ def handle_hexnode_question(question, vector_store, answer_generator, graph_runt
         chunks = tool_result["chunks"]
         answer = answer_generator(question, chunks)
 
-    print(f"Retrieved {len(chunks)} chunks for question: {question}")
-    print(f"Tool used: {tool_result['tool_name']}")
+    logger.info("Hexnode retrieval used %s and returned %s chunks", tool_result["tool_name"], len(chunks))
 
     return {
         "question": question,

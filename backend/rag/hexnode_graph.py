@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, TypedDict
@@ -18,7 +17,8 @@ from rag.hexnode_tools import (
     list_hexnode_topics,
     search_hexnode_docs,
 )
-from rag.gemini_models import PRIMARY_MODEL
+from rag.content import content_to_text
+from rag.gemini_models import PRIMARY_MODEL, get_google_api_key
 
 load_dotenv()
 
@@ -55,87 +55,53 @@ class HexnodeGraphRuntime:
     available_tools: List[str]
 
 
-def _content_to_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text")
-                if text:
-                    parts.append(text)
-            else:
-                text = getattr(item, "text", None)
-                if text:
-                    parts.append(text)
-
-        return "\n".join(part for part in parts if part).strip()
-
-    text = getattr(content, "text", None)
-    if isinstance(text, str):
-        return text
-
-    return str(content) if content is not None else ""
-
-
 @lru_cache(maxsize=1)
 def _get_llm():
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY1")
-
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY or GEMINI_API_KEY1 must be set for Hexnode graph")
-
     return ChatGoogleGenerativeAI(
         model=PRIMARY_MODEL,
         temperature=0.2,
-        google_api_key=api_key,
+        google_api_key=get_google_api_key(),
     )
-
-
-@lru_cache(maxsize=1)
-def _build_llm_tools():
-    @tool
-    def search_hexnode_docs_tool(question: str) -> str:
-        """Search Hexnode documentation for policies, certificates, features, explanations, and general product questions."""
-        return "Use the search_hexnode_docs tool through the graph executor."
-
-    @tool
-    def list_hexnode_topics_tool() -> str:
-        """List the available Hexnode documentation topics."""
-        return "Use the list_hexnode_topics tool through the graph executor."
-
-    @tool
-    def get_hexnode_setup_steps_tool(question: str) -> str:
-        """Get step-by-step setup, installation, enrollment, navigation, or configuration instructions from Hexnode docs."""
-        return "Use the get_hexnode_setup_steps tool through the graph executor."
-
-    tools = (
-        search_hexnode_docs_tool,
-        list_hexnode_topics_tool,
-        get_hexnode_setup_steps_tool,
-    )
-    return tools, {tool_item.name: tool_item for tool_item in tools}
-
-
-def _run_hexnode_tool(tool_name: str, tool_args: Dict[str, Any], vector_store):
-    if tool_name == "search_hexnode_docs_tool":
-        return search_hexnode_docs(tool_args["question"], vector_store)
-    if tool_name == "list_hexnode_topics_tool":
-        return list_hexnode_topics(vector_store)
-    if tool_name == "get_hexnode_setup_steps_tool":
-        return get_hexnode_setup_steps(tool_args["question"], vector_store)
-    raise ValueError(f"Unsupported Hexnode tool: {tool_name}")
 
 
 def build_hexnode_graph_runtime(vector_store) -> HexnodeGraphRuntime:
     if StateGraph is None:
         raise ImportError("langgraph is not installed")
 
-    tools, _ = _build_llm_tools()
+    def run_search_tool(args: Dict[str, Any]) -> Dict[str, Any]:
+        return search_hexnode_docs(args["question"], vector_store)
+
+    def run_topics_tool(_args: Dict[str, Any]) -> Dict[str, Any]:
+        return list_hexnode_topics(vector_store)
+
+    def run_steps_tool(args: Dict[str, Any]) -> Dict[str, Any]:
+        return get_hexnode_setup_steps(args["question"], vector_store)
+
+    @tool
+    def search_hexnode_docs_tool(question: str) -> str:
+        """Search Hexnode documentation for policies, certificates, features, explanations, and general product questions."""
+        return run_search_tool({"question": question})["formatted_context"]
+
+    @tool
+    def list_hexnode_topics_tool() -> str:
+        """List the available Hexnode documentation topics."""
+        return run_topics_tool({})["formatted_context"]
+
+    @tool
+    def get_hexnode_setup_steps_tool(question: str) -> str:
+        """Get step-by-step setup, installation, enrollment, navigation, or configuration instructions from Hexnode docs."""
+        return run_steps_tool({"question": question})["formatted_context"]
+
+    tools = (
+        search_hexnode_docs_tool,
+        list_hexnode_topics_tool,
+        get_hexnode_setup_steps_tool,
+    )
+    tool_handlers = {
+        "search_hexnode_docs_tool": run_search_tool,
+        "list_hexnode_topics_tool": run_topics_tool,
+        "get_hexnode_setup_steps_tool": run_steps_tool,
+    }
     llm = _get_llm().bind_tools(tools)
 
     graph = StateGraph(HexnodeGraphState)
@@ -147,7 +113,7 @@ def build_hexnode_graph_runtime(vector_store) -> HexnodeGraphRuntime:
         }
 
         if not getattr(response, "tool_calls", None):
-            updates["final_answer"] = _content_to_text(response.content)
+            updates["final_answer"] = content_to_text(response.content)
 
         return updates
 
@@ -158,7 +124,11 @@ def build_hexnode_graph_runtime(vector_store) -> HexnodeGraphRuntime:
         latest_tool_result = state.get("tool_result")
 
         for tool_call in getattr(last_message, "tool_calls", []):
-            result = _run_hexnode_tool(tool_call["name"], tool_call["args"], vector_store)
+            handler = tool_handlers.get(tool_call["name"])
+            if handler is None:
+                raise ValueError(f"Unsupported Hexnode tool: {tool_call['name']}")
+
+            result = handler(tool_call["args"])
             latest_tool_result = result
             tool_trace.append(
                 {

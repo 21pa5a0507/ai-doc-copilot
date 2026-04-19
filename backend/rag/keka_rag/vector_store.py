@@ -1,9 +1,13 @@
 import os
+import logging
 from pathlib import Path
 
 from langchain_community.vectorstores import FAISS
 from config.paths import KEKA_FAISS_DIR
 from rag.keka_rag.embeddings import get_embeddings
+
+
+logger = logging.getLogger(__name__)
 
 
 def load_vectorstore(path):
@@ -18,10 +22,10 @@ def load_vectorstore(path):
             get_embeddings(),
             allow_dangerous_deserialization=True
         )
-        print("Loaded FAISS index")
+        logger.info("Loaded Keka FAISS index")
         return db
-    except Exception as e:
-        print(f"Failed loading FAISS: {e}")
+    except Exception as exc:
+        logger.warning("Failed loading Keka FAISS index: %s", exc)
         return None
 
 
@@ -30,7 +34,7 @@ def create_vectorstore(chunks, path):
         raise ValueError("No chunks provided")
 
     path = Path(path)
-    print("Creating FAISS index...")
+    logger.info("Creating Keka FAISS index")
 
     db = FAISS.from_documents(
         documents=chunks,
@@ -40,7 +44,7 @@ def create_vectorstore(chunks, path):
     os.makedirs(path, exist_ok=True)
     db.save_local(str(path))
 
-    print("FAISS saved")
+    logger.info("Saved Keka FAISS index")
     return db
 
 

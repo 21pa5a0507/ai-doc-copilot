@@ -1,3 +1,4 @@
+import logging
 import pickle
 from dataclasses import dataclass
 from typing import Any, List
@@ -9,6 +10,9 @@ from rag.keka_rag.rag_chain import get_rag_chain
 from rag.keka_rag.retriever import get_retriever
 from rag.keka_rag.splitter import split_documents
 from rag.keka_rag.vector_store import get_vectorstore
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,7 +30,7 @@ def load_cached_docs():
             with KEKA_DOCS_CACHE.open("rb") as file:
                 return pickle.load(file)
         except Exception as exc:
-            print(f"Failed to load cached docs: {exc}")
+            logger.warning("Failed to load cached Keka docs: %s", exc)
     return None
 
 
@@ -35,9 +39,9 @@ def save_cached_docs(docs):
         ensure_storage_dirs()
         with KEKA_DOCS_CACHE.open("wb") as file:
             pickle.dump(docs, file)
-        print("Cached docs saved to file")
+        logger.info("Saved cached Keka docs")
     except Exception as exc:
-        print(f"Failed to save cached docs: {exc}")
+        logger.warning("Failed to save cached Keka docs: %s", exc)
 
 
 def _load_or_create_docs():
@@ -56,9 +60,9 @@ def initialize_keka_service():
 
     try:
         vectorstore = get_vectorstore(path=KEKA_FAISS_DIR)
-        print("Loaded existing Keka FAISS index")
+        logger.info("Loaded existing Keka FAISS index")
     except Exception as exc:
-        print(f"Keka FAISS load failed: {exc}. Building new index...")
+        logger.warning("Keka FAISS load failed: %s. Building a new index.", exc)
         docs = docs or _load_or_create_docs()
         vectorstore = get_vectorstore(docs, path=KEKA_FAISS_DIR)
 
@@ -67,7 +71,7 @@ def initialize_keka_service():
     rag_chain = get_rag_chain(retriever)
     agent = build_keka_agent(retriever)
 
-    print("Keka RAG pipeline ready")
+    logger.info("Keka RAG pipeline ready")
     return KekaService(
         docs=docs,
         vectorstore=vectorstore,
