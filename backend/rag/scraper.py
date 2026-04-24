@@ -10,7 +10,13 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from config.paths import HEXNODE_DOCS_JSON, HEXNODE_VECTOR_INDEX
+from config.paths import (
+    HEXNODE_CHUNK_CACHE,
+    HEXNODE_EMB_INDEX,
+    HEXNODE_META_CACHE,
+    HEXNODE_RAW_CACHE,
+    LEGACY_HEXNODE_DOCS_JSON,
+)
 from rag.cleaner import clean_text
 from rag.chunker import chunk_text
 from rag.embeddings import get_embedding
@@ -237,6 +243,22 @@ def chunking_docs(docs):
     logger.info("Prepared %s clean chunks after deduplication", len(chunked_data))
     return chunked_data
 
+
+def load_json_cache(*paths):
+    for candidate in paths:
+        candidate = Path(candidate)
+        if candidate.exists():
+            with candidate.open("r", encoding="utf-8") as f:
+                return json.load(f)
+    return None
+
+
+def save_json_cache(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
 def embedding_docs(docs, store):
     texts = [doc["content"] for doc in docs]
 
@@ -251,14 +273,10 @@ def embedding_docs(docs, store):
     return store
 
 
-async def scrap_website(store, json_cache=HEXNODE_DOCS_JSON):
-    cache_path = Path(json_cache)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if cache_path.exists():
-        with open(cache_path, "r", encoding="utf-8") as f:
-            docs = json.load(f)
-        logger.info("Loaded %s Hexnode documents from cache", len(docs))
+async def scrap_website(store, raw_cache=HEXNODE_RAW_CACHE, chunk_cache=HEXNODE_CHUNK_CACHE):
+    docs = load_json_cache(raw_cache, LEGACY_HEXNODE_DOCS_JSON)
+    if docs is not None:
+        logger.info("Loaded %s Hexnode raw documents from cache", len(docs))
     else:
         logger.info("Fetching initial Hexnode URLs")
         start_urls = get_all_urls()
@@ -267,14 +285,18 @@ async def scrap_website(store, json_cache=HEXNODE_DOCS_JSON):
 
         logger.info("Crawling Hexnode docs with max depth %s", MAX_DEPTH)
         docs = await crawl_with_depth(start_urls)
+        save_json_cache(raw_cache, docs)
 
-        with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(docs, f, indent=2, ensure_ascii=False)
+    chunked_docs = load_json_cache(chunk_cache)
+    if chunked_docs is not None:
+        logger.info("Loaded %s Hexnode chunks from cache", len(chunked_docs))
+    else:
+        chunked_docs = chunking_docs(docs)
+        save_json_cache(chunk_cache, chunked_docs)
 
-    chunked_docs = chunking_docs(docs)
     embedding_docs(chunked_docs, store)
     store.build_bm25()  # Build BM25 after all chunks added
-    store.save(HEXNODE_VECTOR_INDEX)  # Save after embedding
+    store.save(HEXNODE_EMB_INDEX, meta_path=HEXNODE_META_CACHE)  # Save after embedding
 
     return True
 

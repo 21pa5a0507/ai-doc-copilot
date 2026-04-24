@@ -3,7 +3,13 @@ import pickle
 from dataclasses import dataclass
 from typing import Any, List
 
-from config.paths import KEKA_DOCS_CACHE, KEKA_FAISS_DIR, ensure_storage_dirs
+from config.paths import (
+    KEKA_CHUNK_CACHE,
+    KEKA_FAISS_EMB_DIR,
+    LEGACY_KEKA_DOCS_CACHE,
+    LEGACY_KEKA_FAISS_DIR,
+    ensure_storage_dirs,
+)
 from rag.keka_rag.keka_agent import build_keka_agent
 from rag.keka_rag.loaders import load_pdfs
 from rag.keka_rag.rag_chain import get_rag_chain
@@ -25,9 +31,11 @@ class KekaService:
 
 
 def load_cached_docs():
-    if KEKA_DOCS_CACHE.exists():
+    for cache_path in (KEKA_CHUNK_CACHE, LEGACY_KEKA_DOCS_CACHE):
+        if not cache_path.exists():
+            continue
         try:
-            with KEKA_DOCS_CACHE.open("rb") as file:
+            with cache_path.open("rb") as file:
                 return pickle.load(file)
         except Exception as exc:
             logger.warning("Failed to load cached Keka docs: %s", exc)
@@ -37,7 +45,7 @@ def load_cached_docs():
 def save_cached_docs(docs):
     try:
         ensure_storage_dirs()
-        with KEKA_DOCS_CACHE.open("wb") as file:
+        with KEKA_CHUNK_CACHE.open("wb") as file:
             pickle.dump(docs, file)
         logger.info("Saved cached Keka docs")
     except Exception as exc:
@@ -59,12 +67,12 @@ def initialize_keka_service():
     docs = load_cached_docs()
 
     try:
-        vectorstore = get_vectorstore(path=KEKA_FAISS_DIR)
+        vectorstore = get_vectorstore(path=KEKA_FAISS_EMB_DIR, legacy_path=LEGACY_KEKA_FAISS_DIR)
         logger.info("Loaded existing Keka FAISS index")
     except Exception as exc:
         logger.warning("Keka FAISS load failed: %s. Building a new index.", exc)
         docs = docs or _load_or_create_docs()
-        vectorstore = get_vectorstore(docs, path=KEKA_FAISS_DIR)
+        vectorstore = get_vectorstore(docs, path=KEKA_FAISS_EMB_DIR, legacy_path=LEGACY_KEKA_FAISS_DIR)
 
     docs = docs or _load_or_create_docs()
     retriever = get_retriever(vectorstore, docs)

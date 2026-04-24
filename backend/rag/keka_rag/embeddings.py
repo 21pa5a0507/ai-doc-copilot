@@ -1,29 +1,22 @@
 from typing import List
 from langchain_core.embeddings import Embeddings
-from sentence_transformers import SentenceTransformer
+from rag.backends.onnx_embeddings import get_embedding_model
 
 
 class HFEmbeddings(Embeddings):
-    def __init__(self, model_name="BAAI/bge-base-en"):
-        print("Loading embedding model...")
-        self.model = SentenceTransformer(model_name)
+    def __init__(self, model_name="all-MiniLM-L6-v2-keka"):
+        self.model = get_embedding_model(model_name)
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        texts = [f"passage: {t}" for t in texts]
-
         return self.model.encode(
             texts,
             batch_size=32,
-            convert_to_numpy=True,
             normalize_embeddings=True
         ).tolist()
 
     def embed_query(self, text: str) -> List[float]:
-        text = f"query: {text}"
-
         return self.model.encode(
             [text],
-            convert_to_numpy=True,
             normalize_embeddings=True
         )[0].tolist()
 

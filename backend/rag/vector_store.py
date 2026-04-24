@@ -6,7 +6,7 @@ import pickle
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
-from sentence_transformers import CrossEncoder
+from rag.backends.onnx_reranker import get_reranker_model
 
 
 logger = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # -------------------------------
 class Reranker:
     def __init__(self):
-        self.model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        self.model = get_reranker_model()
 
     def rerank(self, query, chunks, top_k=5):
         if not chunks:
@@ -52,23 +52,24 @@ class VectorStore:
         self.bm25 = None
         self.reranker = Reranker()
 
-    def save(self, path):
+    def save(self, path, meta_path=None):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         faiss.write_index(self.index, str(path))
 
-        meta_path = path.with_name(path.name + "_meta.pkl")
+        meta_path = Path(meta_path) if meta_path else path.with_name(path.name + "_meta.pkl")
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
         with meta_path.open("wb") as f:
             pickle.dump({
                 "text_chunks": self.chunks,
                 "tokenized_chunks": self.tokenized_chunks
             }, f)
     
-    def load(self, path):
+    def load(self, path, meta_path=None):
         path = Path(path)
-        meta_path = path.with_name(path.name + "_meta.pkl")
+        meta_path = Path(meta_path) if meta_path else path.with_name(path.name + "_meta.pkl")
 
-        if path.exists():
+        if path.exists() and meta_path.exists():
             self.index = faiss.read_index(str(path))
 
             with meta_path.open("rb") as f:
@@ -79,8 +80,8 @@ class VectorStore:
             self.build_bm25()
 
             return True
-        else:
-            return False
+
+        return False
 
     # -----------------------------
     # ADD DATA

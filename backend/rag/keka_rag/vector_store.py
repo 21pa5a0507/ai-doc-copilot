@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from langchain_community.vectorstores import FAISS
-from config.paths import KEKA_FAISS_DIR
+from config.paths import KEKA_FAISS_EMB_DIR
 from rag.keka_rag.embeddings import get_embeddings
 
 
@@ -48,8 +48,10 @@ def create_vectorstore(chunks, path):
     return db
 
 
-def get_vectorstore(chunks=None, path=KEKA_FAISS_DIR):
+def get_vectorstore(chunks=None, path=KEKA_FAISS_EMB_DIR, legacy_path=None):
     db = load_vectorstore(path)
+    if not db and legacy_path is not None:
+        db = load_vectorstore(legacy_path)
 
     if db:
         return db

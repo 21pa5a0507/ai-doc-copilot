@@ -1,7 +1,7 @@
 from typing import List
 from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
-from sentence_transformers import CrossEncoder
+from rag.backends.onnx_reranker import get_reranker_model
 
 
 # ---------------------------
@@ -9,7 +9,7 @@ from sentence_transformers import CrossEncoder
 # ---------------------------
 class Reranker:
     def __init__(self):
-        self.model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        self.model = get_reranker_model()
 
     def rerank(self, query: str, docs: List[Document], top_k: int = 5):
         pairs = [(query, doc.page_content) for doc in docs]
