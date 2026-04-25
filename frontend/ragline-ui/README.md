@@ -1,16 +1,54 @@
-# React + Vite
+# HexPilot AI Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite frontend for HexPilot AI, a chat interface for asking questions across Hexnode documentation and Keka policy sources.
 
-Currently, two official plugins are available:
+## Local Setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Install dependencies:
 
-## React Compiler
+```bash
+npm install
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Create a local `.env` file:
 
-## Expanding the ESLint configuration
+```bash
+VITE_API_URL=http://localhost:8000
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Start the development server:
+
+```bash
+npm run dev
+```
+
+## Environment Variables
+
+| Variable | Description |
+| --- | --- |
+| `VITE_API_URL` | Backend base URL. Do not include `/ask`; the frontend appends it automatically. |
+
+Example production value:
+
+```bash
+VITE_API_URL=https://your-backend-domain.com
+```
+
+## Available Scripts
+
+```bash
+npm run dev
+npm run lint
+npm run build
+npm run preview
+```
+
+## Deployment Notes
+
+For Vercel, use this directory as the project root:
+
+```bash
+frontend/ragline-ui
+```
+
+Set `VITE_API_URL` in Vercel before deploying. Redeploy after changing environment variables.
