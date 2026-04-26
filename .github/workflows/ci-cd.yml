@@ -1,0 +1,13 @@
+name: Hexnode CI/CD Pipeline
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Say hello
+      run: echo "Hello, World!"
