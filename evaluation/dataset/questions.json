@@ -1,0 +1,263 @@
+[
+  {
+    "id": "HEX-001",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["How to enroll Windows PCs & Tablets?", "Standard Enrollment: Windows PCs & Tablets"],
+    "question": "How do I enroll Windows PCs and Tablets in Hexnode?",
+    "tags": ["windows", "enrollment"],
+    "expected_keywords": ["windows", "enroll", "profile", "device"],
+    "required_keywords": ["windows", "enroll"]
+  },
+  {
+    "id": "HEX-002",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["Google Workspace enrollment for Windows devices", "Enroll Windows devices via Google Workspace authentication"],
+    "question": "How do I configure Google Workspace enrollment for Windows devices in Hexnode?",
+    "tags": ["windows", "google-workspace", "enrollment"],
+    "expected_keywords": ["google workspace", "windows", "enrollment", "service account"],
+    "required_keywords": ["google workspace", "windows"]
+  },
+  {
+    "id": "HEX-003",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["Q8: What happens if I disable an enrollment profile?"],
+    "question": "What happens if I disable an enrollment profile in Hexnode?",
+    "tags": ["windows", "enrollment-profile"],
+    "expected_keywords": ["enrollment profile", "disable", "device", "hexnode"],
+    "required_keywords": ["enrollment profile", "disable"]
+  },
+  {
+    "id": "HEX-004",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["Q7: How do I automatically assign devices to Groups or Departments?"],
+    "question": "How can I automatically assign devices to groups or departments during Hexnode enrollment?",
+    "tags": ["enrollment", "groups", "departments"],
+    "expected_keywords": ["groups", "departments", "assign", "enrollment"],
+    "required_keywords": ["groups", "enrollment"]
+  },
+  {
+    "id": "HEX-005",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["Remote View & Control without user interaction", "Remote Access Management for Windows"],
+    "question": "How do I enable unattended remote access for Windows devices in Hexnode?",
+    "tags": ["remote-access", "windows"],
+    "expected_keywords": ["unattended", "remote access", "windows", "policy"],
+    "required_keywords": ["unattended", "remote access"]
+  },
+  {
+    "id": "HEX-006",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["Available Enrollment Methods"],
+    "question": "What enrollment methods are available for Windows devices in Hexnode?",
+    "tags": ["windows", "enrollment-methods"],
+    "expected_keywords": ["windows", "enrollment", "autopilot", "ppkg"],
+    "required_keywords": ["windows", "enrollment"]
+  },
+  {
+    "id": "HEX-007",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["The Definitive Guide to Windows Autopilot Zero-Touch Provisioning", "Choosing an Autopilot Deployment Profile"],
+    "question": "What does Hexnode say about Windows Autopilot for device onboarding?",
+    "tags": ["windows", "autopilot"],
+    "expected_keywords": ["autopilot", "windows", "onboarding", "provisioning"],
+    "required_keywords": ["autopilot", "windows"]
+  },
+  {
+    "id": "HEX-008",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["Q3: Are there features missing if I use Native Enrollment instead of the Hexnode Installer App?"],
+    "question": "What features are missing if I use native enrollment instead of the Hexnode Installer app on Windows?",
+    "tags": ["windows", "native-enrollment", "installer"],
+    "expected_keywords": ["native enrollment", "installer", "scripts", "msi"],
+    "required_keywords": ["native enrollment", "installer"]
+  },
+  {
+    "id": "HEX-009",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["Add Required apps to Windows devices via policy", "Deploy scripts to automate app deployment with Required Apps", "Install applications via Policy"],
+    "question": "How do I deploy required apps or custom installation settings on Windows in Hexnode?",
+    "tags": ["windows", "apps", "deployment"],
+    "expected_keywords": ["required apps", "installation", "windows", "policy"],
+    "required_keywords": ["required apps", "installation"]
+  },
+  {
+    "id": "HEX-010",
+    "source": "default",
+    "expected_sources": ["hexnode"],
+    "expected_documents": ["How to configure website kiosk on Windows devices?", "Configuring Kiosk Lockdown on Windows devices", "Configuring a Multi App kiosk policy"],
+    "question": "What does Hexnode documentation mention about configuring Windows kiosk mode?",
+    "tags": ["windows", "kiosk"],
+    "expected_keywords": ["windows", "kiosk", "single app", "multi app"],
+    "required_keywords": ["windows", "kiosk"]
+  },
+  {
+    "id": "KEKA-001",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["Leave Policy 2026.pdf"],
+    "question": "What does the Leave Policy 2026 cover for employees?",
+    "tags": ["leave", "policy"],
+    "expected_keywords": ["leave", "policy", "employee"],
+    "required_keywords": ["leave", "policy"]
+  },
+  {
+    "id": "KEKA-002",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["Employee Provident Fund User Guideline.pdf"],
+    "question": "How do I activate UAN or log in to the EPF portal according to the Employee Provident Fund User Guideline?",
+    "tags": ["epf", "uan", "process"],
+    "expected_keywords": ["uan", "epf", "portal", "login"],
+    "required_keywords": ["uan", "epf"]
+  },
+  {
+    "id": "KEKA-003",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["ID Card Policy.pdf"],
+    "question": "What does the ID Card Policy say about issuance and usage?",
+    "tags": ["id-card", "policy"],
+    "expected_keywords": ["id card", "issuance", "usage", "policy"],
+    "required_keywords": ["id card", "issuance"]
+  },
+  {
+    "id": "KEKA-004",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["Insurance Guidelines 2026.pdf"],
+    "question": "What is covered in the Insurance Guidelines 2026?",
+    "tags": ["insurance", "policy"],
+    "expected_keywords": ["insurance", "guidelines", "policy", "employee"],
+    "required_keywords": ["insurance", "guidelines"]
+  },
+  {
+    "id": "KEKA-005",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["Employee Benefits.pdf"],
+    "question": "What benefits are listed in the Employee Benefits document?",
+    "tags": ["benefits", "employees"],
+    "expected_keywords": ["employee", "benefits", "food", "employees"],
+    "required_keywords": ["employee", "benefits"]
+  },
+  {
+    "id": "KEKA-006",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["Work From Home 2026.pdf"],
+    "question": "What does the Work From Home 2026 policy say about remote work?",
+    "tags": ["wfh", "policy"],
+    "expected_keywords": ["work from home", "policy", "remote", "eligibility"],
+    "required_keywords": ["work from home", "policy"]
+  },
+  {
+    "id": "KEKA-007",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["Employee Referral Award Program Policy.pdf"],
+    "question": "Who is eligible under the Employee Referral Award Program Policy, and who is not eligible?",
+    "tags": ["referral", "eligibility"],
+    "expected_keywords": ["referral", "eligible", "employees", "rewards"],
+    "required_keywords": ["referral", "eligible"]
+  },
+  {
+    "id": "KEKA-008",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["Anti-Harassment and Non-Discrimination Policy 2026.pdf"],
+    "question": "What does the Anti-Harassment and Non-Discrimination Policy say about investigation procedure or reporting?",
+    "tags": ["anti-harassment", "investigation"],
+    "expected_keywords": ["harassment", "reporting", "investigation", "policy"],
+    "required_keywords": ["harassment", "investigation"]
+  },
+  {
+    "id": "KEKA-009",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["NPS Policy - Version 2.pdf"],
+    "question": "What are the contribution options mentioned in the NPS Policy?",
+    "tags": ["nps", "contribution"],
+    "expected_keywords": ["nps", "contribution", "5%", "10%"],
+    "required_keywords": ["nps", "contribution"]
+  },
+  {
+    "id": "KEKA-010",
+    "source": "keka",
+    "expected_sources": ["keka"],
+    "expected_documents": ["profit sharing plan.pdf"],
+    "question": "What does the profit sharing plan say about payout timing and retention period?",
+    "tags": ["profit-sharing", "payout"],
+    "expected_keywords": ["profit", "sharing", "payout", "6 months"],
+    "required_keywords": ["payout", "6 months"]
+  },
+  {
+    "id": "COMB-001",
+    "source": "both",
+    "expected_sources": ["hexnode", "keka"],
+    "expected_documents": ["How to enroll Windows PCs & Tablets?", "ID Card Policy.pdf"],
+    "question": "For a new employee, compare Hexnode Windows enrollment steps with the Keka ID Card Policy.",
+    "tags": ["onboarding", "windows", "id-card"],
+    "expected_keywords": ["windows", "enrollment", "id card", "policy"],
+    "required_keywords": ["windows", "id card"]
+  },
+  {
+    "id": "COMB-002",
+    "source": "both",
+    "expected_sources": ["hexnode", "keka"],
+    "expected_documents": ["Remote View & Control without user interaction", "Work From Home 2026.pdf"],
+    "question": "Compare Hexnode unattended remote access guidance with the Keka Work From Home 2026 policy.",
+    "tags": ["remote-access", "wfh"],
+    "expected_keywords": ["unattended", "remote access", "work from home", "policy"],
+    "required_keywords": ["remote access", "work from home"]
+  },
+  {
+    "id": "COMB-003",
+    "source": "both",
+    "expected_sources": ["hexnode", "keka"],
+    "expected_documents": ["Add Required apps to Windows devices via policy", "asset policy.pdf"],
+    "question": "Compare Hexnode Windows app deployment guidance with the Keka asset policy.",
+    "tags": ["apps", "asset-policy"],
+    "expected_keywords": ["windows", "app", "deployment", "asset policy"],
+    "required_keywords": ["deployment", "asset policy"]
+  },
+  {
+    "id": "COMB-004",
+    "source": "both",
+    "expected_sources": ["hexnode", "keka"],
+    "expected_documents": ["The Definitive Guide to Windows Autopilot Zero-Touch Provisioning", "Employee Benefits.pdf"],
+    "question": "Compare Hexnode Windows Autopilot onboarding guidance with the Keka Employee Benefits document for new joiners.",
+    "tags": ["autopilot", "benefits", "onboarding"],
+    "expected_keywords": ["autopilot", "windows", "benefits", "employees"],
+    "required_keywords": ["autopilot", "benefits"]
+  },
+  {
+    "id": "COMB-005",
+    "source": "both",
+    "expected_sources": ["hexnode", "keka"],
+    "expected_documents": ["How to configure website kiosk on Windows devices?", "Cab_Policy.pdf"],
+    "question": "Compare Hexnode Windows kiosk guidance with the Keka Cab Policy for workplace operations.",
+    "tags": ["kiosk", "cab-policy"],
+    "expected_keywords": ["kiosk", "windows", "cab", "policy"],
+    "required_keywords": ["kiosk", "cab"]
+  },
+  {
+    "id": "COMB-006",
+    "source": "both",
+    "expected_sources": [],
+    "expected_documents": [],
+    "question": "What is the company's stock price forecast for next quarter?",
+    "tags": ["out-of-scope"],
+    "out_of_scope": true,
+    "expected_keywords": [],
+    "required_keywords": []
+  }
+]

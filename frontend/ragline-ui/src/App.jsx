@@ -75,7 +75,7 @@ function App() {
               <div className="brand-mark">HP</div>
               <div>
                 <p className="font-display text-lg font-semibold text-[var(--text-primary)]">
-                  HexxPilot AI
+                  HexPilot AI
                 </p>
                 <p className="text-xs text-[var(--text-muted)]">Workspace</p>
               </div>
@@ -149,7 +149,7 @@ function App() {
                     <div className="brand-mark brand-mark-small">HP</div>
                     <div>
                       <p className="font-display text-xl font-semibold tracking-tight text-[var(--text-primary)]">
-                        HexxPilot AI
+                        HexPilot AI
                       </p>
                       <p className="text-sm text-[var(--text-muted)]">
                         Search across Hexnode docs and Keka policies

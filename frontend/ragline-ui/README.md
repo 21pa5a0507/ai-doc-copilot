@@ -1,6 +1,6 @@
-# HexxPilot AI Frontend
+# HexPilot AI Frontend
 
-React + Vite frontend for HexxPilot AI, a chat interface for asking questions across Hexnode documentation and Keka policy sources.
+React + Vite frontend for HexPilot AI, a chat interface for asking questions across Hexnode documentation and Keka policy sources.
 
 ## Local Setup
 

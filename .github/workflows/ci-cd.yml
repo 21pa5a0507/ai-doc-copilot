@@ -4,41 +4,123 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  frontend:
-    name: Frontend quality check
+  changes:
+    name: Decide what changed
     runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+
+    steps:
+      - name: Checkout project code
+        uses: actions/checkout@v4
+
+      - name: Check changed files
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - "frontend/ragline-ui/**"
+              - ".github/workflows/ci-cd.yml"
+            backend:
+              - "backend/**"
+              - "storage/**"
+              - "Dockerfile"
+              - ".dockerignore"
+              - ".gitignore"
+              - ".github/workflows/ci-cd.yml"
+
+  frontend:
+    name: Check frontend
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
 
     defaults:
       run:
         working-directory: frontend/ragline-ui
 
     steps:
-      - name: Checkout project code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Prepare Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/ragline-ui/package-lock.json
 
-      - name: Install frontend dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Check frontend code quality
+      - name: Run lint
         run: npm run lint
 
-      - name: Build frontend for production
+      - name: Build production bundle
         run: npm run build
 
-  backend-docker:
-    name: Backend Docker build and push
+  backend-validate:
+    name: Validate backend
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
 
     steps:
-      - name: Checkout project code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check Python syntax
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          skipped_dirs = {"venv", "__pycache__"}
+
+          for path in Path("backend").rglob("*.py"):
+              if skipped_dirs.intersection(path.parts):
+                  continue
+
+              ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+          PY
+
+  backend-docker-check:
+    name: Check backend Docker image
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - backend-validate
+    if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build backend Docker image
+        run: docker build -t ai-doc-copilot:${{ github.sha }} .
+
+  backend-docker-publish:
+    name: Publish backend image
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - backend-validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.backend == 'true'
+
+    steps:
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Login to Docker Hub
@@ -47,7 +129,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push backend Docker image
+      - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -57,13 +139,15 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/ai-doc-copilot:latest
 
   deploy-backend:
-    name: Deploy backend to Cloud Run
+    name: Deploy backend
     runs-on: ubuntu-latest
-    needs: backend-docker
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - changes
+      - backend-docker-publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.backend == 'true'
 
     steps:
-      - name: Checkout project code
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
@@ -71,7 +155,7 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Deploy backend image to Cloud Run
+      - name: Deploy to Cloud Run
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v3
         with:
@@ -80,5 +164,8 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           image: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ai-doc-copilot:${{ github.sha }}
 
-      - name: Show deployed backend URL
+      - name: Print deployed URL
         run: echo "${{ steps.deploy.outputs.url }}"
+
+      - name: Check deployed backend
+        run: curl --fail --show-error --silent "${{ steps.deploy.outputs.url }}/health"

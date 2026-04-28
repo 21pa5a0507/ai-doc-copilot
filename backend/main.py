@@ -177,6 +177,11 @@ async def startup_event():
         logger.exception("Combined graph failed to initialize: %s", exc)
 
 
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
 @app.post("/ask")
 def ask(query: Query):
     logger.info("Received question for source=%s", query.source)

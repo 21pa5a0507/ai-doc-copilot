@@ -5,36 +5,42 @@ from urllib import error, request
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATASET_DIR = PROJECT_ROOT / "evaluation" / "dataset"
-DATASET_FILES = {
-    "hexnode": DATASET_DIR / "hexnode_questions.json",
-    "keka": DATASET_DIR / "keka_questions.json",
-    "combined": DATASET_DIR / "combined_questions.json",
-}
+DATASET_FILE = PROJECT_ROOT / "evaluation" / "dataset" / "questions.json"
+RESULTS_DIR = PROJECT_ROOT / "evaluation" / "results"
+
 BASE_URL = "http://localhost:8000"
-DATASET_TO_RUN = "all"  # hexnode, keka, combined, all
+DATASET_TO_RUN = "all"  # all, hexnode, keka, combined
 REQUEST_TIMEOUT = 120
 CHECK_DATASET_ONLY = False
 
 
-def load_dataset(path: Path):
-    with path.open("r", encoding="utf-8") as file:
-        data = json.load(file)
+def load_cases():
+    with DATASET_FILE.open("r", encoding="utf-8") as file:
+        cases = json.load(file)
 
-    if not isinstance(data, list):
-        raise ValueError("Dataset file must contain a list of questions")
+    if not isinstance(cases, list):
+        raise ValueError("Evaluation dataset must be a list of cases")
 
-    return data
+    return cases
 
 
-def call_ask_api(question: str, source: str):
-    payload = json.dumps(
-        {
-            "question": question,
-            "source": source,
-        }
-    ).encode("utf-8")
+def case_group(case):
+    source = case.get("source", "default")
+    if source == "default":
+        return "hexnode"
+    if source == "both":
+        return "combined"
+    return source
 
+
+def selected_cases(cases):
+    if DATASET_TO_RUN == "all":
+        return cases
+    return [case for case in cases if case_group(case) == DATASET_TO_RUN]
+
+
+def ask_backend(question, source):
+    payload = json.dumps({"question": question, "source": source}).encode("utf-8")
     api_request = request.Request(
         f"{BASE_URL.rstrip('/')}/ask",
         data=payload,
@@ -46,262 +52,296 @@ def call_ask_api(question: str, source: str):
         return json.loads(response.read().decode("utf-8"))
 
 
-def normalize_text(value):
-    if value is None:
-        return ""
-    return str(value).lower()
+def text(value):
+    return "" if value is None else str(value).lower()
 
 
-def collect_search_text(result):
+def all_chunks(result):
+    chunks = list(result.get("chunks") or [])
+
+    for source_result in (result.get("source_results") or {}).values():
+        chunks.extend(source_result.get("chunks") or [])
+
+    return chunks
+
+
+def joined_chunks(result, include_content=True):
     parts = []
-
-    answer = result.get("answer", "")
-    if answer:
-        parts.append(str(answer))
-
-    for chunk in result.get("chunks", []):
-        title = chunk.get("title", "")
-        content = chunk.get("content", "")
-        if title:
-            parts.append(str(title))
-        if content:
-            parts.append(str(content))
-
-    for source_name, source_result in (result.get("source_results") or {}).items():
-        parts.append(source_name)
-        for chunk in source_result.get("chunks", []):
-            title = chunk.get("title", "")
-            content = chunk.get("content", "")
-            if title:
-                parts.append(str(title))
-            if content:
-                parts.append(str(content))
-
+    for chunk in all_chunks(result):
+        parts.append(str(chunk.get("title", "")))
+        parts.append(str(chunk.get("source", "")))
+        if include_content:
+            parts.append(str(chunk.get("content", "")))
     return "\n".join(parts).lower()
 
 
-def score_result(item, result):
-    search_text = collect_search_text(result)
+def matches(expected_values, haystack):
+    return [value for value in expected_values if text(value) in haystack]
 
-    expected_keywords = item.get("expected_keywords") or []
-    matched_keywords = [keyword for keyword in expected_keywords if keyword.lower() in search_text]
-    required_keywords = item.get("required_keywords") or []
-    matched_required_keywords = [keyword for keyword in required_keywords if keyword.lower() in search_text]
 
-    answer_text = normalize_text(result.get("answer", "")).strip()
-    has_real_answer = bool(answer_text)
-    fallback_answer = (
-        "i don't know" in answer_text
-        or "information not found" in answer_text
-        or "not available" in answer_text
+def expected_sources_for(case):
+    expected = case.get("expected_sources")
+    if expected is not None:
+        return expected
+
+    source = case.get("source", "default")
+    if source == "default":
+        return ["hexnode"]
+    if source == "both":
+        return ["hexnode", "keka"]
+    return [source]
+
+
+def actual_sources(result):
+    found = set()
+    source = text(result.get("source")).strip()
+
+    if source in {"default", "hexnode"}:
+        found.add("hexnode")
+    elif source in {"keka", "keka_rag"}:
+        found.add("keka")
+    elif source == "both":
+        found.update({"hexnode", "keka"})
+
+    for source_name in (result.get("source_results") or {}).keys():
+        found.add(text(source_name).strip())
+
+    for chunk in all_chunks(result):
+        chunk_source = text(chunk.get("kb_source") or chunk.get("source")).strip()
+        if "keka" in chunk_source:
+            found.add("keka")
+        elif chunk_source:
+            found.add("hexnode")
+
+    return sorted(source for source in found if source)
+
+
+def is_fallback(answer):
+    answer = text(answer)
+    fallback_phrases = (
+        "i don't know",
+        "information not found",
+        "not available",
+        "not contain",
+        "not supported",
     )
-    chunk_count = len(result.get("chunks", []))
-    retrieval_hit = chunk_count > 0
-    answer_mentions_keyword = bool(matched_keywords) or bool(matched_required_keywords)
+    return any(phrase in answer for phrase in fallback_phrases)
 
-    if has_real_answer and not fallback_answer and retrieval_hit and answer_mentions_keyword:
-        answer_quality = "good"
-    elif has_real_answer and not fallback_answer:
-        answer_quality = "partial"
+
+def score_case(case, result):
+    answer = text(result.get("answer")).strip()
+    chunks = all_chunks(result)
+    chunk_text = joined_chunks(result, include_content=True)
+    document_text = joined_chunks(result, include_content=False)
+
+    expected_keywords = case.get("expected_keywords") or []
+    required_keywords = case.get("required_keywords") or []
+    expected_documents = case.get("expected_documents") or []
+    expected_sources = expected_sources_for(case)
+
+    matched_documents = matches(expected_documents, document_text)
+    matched_chunk_keywords = matches(required_keywords + expected_keywords, chunk_text)
+    matched_answer_keywords = matches(required_keywords + expected_keywords, answer)
+
+    source_ok = set(expected_sources).issubset(set(actual_sources(result)))
+    document_ok = bool(matched_documents) if expected_documents else True
+    retrieval_hit = bool(chunks)
+    retrieval_relevant = bool(matched_chunk_keywords)
+    answer_covers_facts = bool(matched_answer_keywords)
+    fallback = is_fallback(answer)
+    hallucination_risk = bool(answer and not fallback and not retrieval_relevant)
+
+    if case.get("out_of_scope"):
+        passed = fallback or not answer
     else:
-        answer_quality = "weak"
-
-    passed = retrieval_hit and has_real_answer and not fallback_answer and bool(matched_required_keywords or matched_keywords)
+        passed = (
+            source_ok
+            and document_ok
+            and retrieval_hit
+            and retrieval_relevant
+            and answer_covers_facts
+            and not fallback
+            and not hallucination_risk
+        )
 
     return {
-        "expected_keywords": expected_keywords,
-        "matched_keywords": matched_keywords,
-        "required_keywords": required_keywords,
-        "matched_required_keywords": matched_required_keywords,
-        "keyword_match_count": len(matched_keywords),
-        "keyword_match_ratio": round(len(matched_keywords) / len(expected_keywords), 2) if expected_keywords else 0.0,
-        "retrieval_hit": retrieval_hit,
-        "chunk_count": chunk_count,
-        "fallback_answer": fallback_answer,
-        "answer_quality": answer_quality,
         "passed": passed,
+        "source_ok": source_ok,
+        "expected_sources": expected_sources,
+        "actual_sources": actual_sources(result),
+        "document_ok": document_ok,
+        "expected_documents": expected_documents,
+        "matched_documents": matched_documents,
+        "retrieval_hit": retrieval_hit,
+        "retrieval_relevant": retrieval_relevant,
+        "chunk_count": len(chunks),
+        "answer_covers_facts": answer_covers_facts,
+        "matched_answer_keywords": matched_answer_keywords,
+        "fallback": fallback,
+        "hallucination_risk": hallucination_risk,
     }
 
 
-def score_error_result(item, status, message):
+def error_score(case, status, message):
     return {
-        "expected_keywords": item.get("expected_keywords") or [],
-        "matched_keywords": [],
-        "required_keywords": item.get("required_keywords") or [],
-        "matched_required_keywords": [],
-        "keyword_match_count": 0,
-        "keyword_match_ratio": 0.0,
-        "retrieval_hit": False,
-        "chunk_count": 0,
-        "fallback_answer": True,
-        "answer_quality": "weak",
         "passed": False,
+        "source_ok": False,
+        "expected_sources": expected_sources_for(case),
+        "actual_sources": [],
+        "document_ok": False,
+        "expected_documents": case.get("expected_documents") or [],
+        "matched_documents": [],
+        "retrieval_hit": False,
+        "retrieval_relevant": False,
+        "chunk_count": 0,
+        "answer_covers_facts": False,
+        "matched_answer_keywords": [],
+        "fallback": True,
+        "hallucination_risk": False,
         "status": status,
         "error_message": message,
     }
 
 
-def summarize_results(rows):
-    total = len(rows)
-    keyword_ratios = [row["scores"]["keyword_match_ratio"] for row in rows]
-    good_answers = sum(1 for row in rows if row["scores"]["answer_quality"] == "good")
-    partial_answers = sum(1 for row in rows if row["scores"]["answer_quality"] == "partial")
-    weak_answers = sum(1 for row in rows if row["scores"]["answer_quality"] == "weak")
-    passed = sum(1 for row in rows if row["scores"]["passed"])
-    retrieval_hits = sum(1 for row in rows if row["scores"]["retrieval_hit"])
-    fallback_answers = sum(1 for row in rows if row["scores"]["fallback_answer"])
-    timeouts = sum(1 for row in rows if row["scores"].get("status") == "timeout")
-    api_errors = sum(1 for row in rows if row["scores"].get("status") == "api_error")
+def rate(rows, key):
+    if not rows:
+        return 0.0
+    return round(sum(1 for row in rows if row["scores"][key]) / len(rows), 2)
 
+
+def summarize(rows):
     return {
-        "total_questions": total,
-        "pass_rate": round(passed / total, 2) if total else 0.0,
-        "retrieval_hit_rate": round(retrieval_hits / total, 2) if total else 0.0,
-        "average_keyword_match_ratio": round(sum(keyword_ratios) / total, 2) if total else 0.0,
-        "fallback_answer_rate": round(fallback_answers / total, 2) if total else 0.0,
-        "timeouts": timeouts,
-        "api_errors": api_errors,
-        "good_answers": good_answers,
-        "partial_answers": partial_answers,
-        "weak_answers": weak_answers,
+        "total_questions": len(rows),
+        "pass_rate": rate(rows, "passed"),
+        "source_accuracy": rate(rows, "source_ok"),
+        "document_match_rate": rate(rows, "document_ok"),
+        "retrieval_hit_rate": rate(rows, "retrieval_hit"),
+        "retrieval_relevance_rate": rate(rows, "retrieval_relevant"),
+        "answer_fact_coverage_rate": rate(rows, "answer_covers_facts"),
+        "fallback_rate": rate(rows, "fallback"),
+        "hallucination_risk_rate": rate(rows, "hallucination_risk"),
     }
 
 
-def print_one_result(item, result, scores):
+def failure_reason(scores):
+    if scores.get("error_message"):
+        return scores["error_message"]
+    if not scores["source_ok"]:
+        return "wrong source selected"
+    if not scores["document_ok"]:
+        return "expected document/title was not retrieved"
+    if not scores["retrieval_hit"]:
+        return "no chunks retrieved"
+    if not scores["retrieval_relevant"]:
+        return "retrieved chunks missed expected evidence"
+    if scores["fallback"]:
+        return "fallback answer"
+    if not scores["answer_covers_facts"]:
+        return "answer missed expected facts"
+    if scores["hallucination_risk"]:
+        return "answer was not supported by retrieved evidence"
+    return "quality check failed"
+
+
+def print_case(case, result, scores):
     print("")
-    print(f"Case: {item.get('id', '-')}")
-    print(f"Question: {item['question']}")
+    print(f"Case: {case.get('id', '-')}")
+    print(f"Question: {case['question']}")
     print(f"Pass: {scores['passed']}")
-
-    status = scores.get("status", "ok")
-    if status != "ok":
-        print(f"Status: {status}")
-        print(f"Error: {scores.get('error_message', '')}")
-        return
-
-    tool_result = result.get("tool_result") or {}
-    print(f"Tool: {tool_result.get('tool_name')}")
+    print(f"Source OK: {scores['source_ok']} {scores['actual_sources']}")
+    print(f"Document OK: {scores['document_ok']} {scores['matched_documents']}")
     print(f"Retrieval: {scores['retrieval_hit']} ({scores['chunk_count']} chunks)")
-    print(f"Fallback answer: {scores['fallback_answer']}")
-    print(
-        f"Required keywords matched: "
-        f"{len(scores['matched_required_keywords'])}/{len(scores['required_keywords'])}"
-    )
-    print(f"Answer quality: {scores['answer_quality']}")
+    print(f"Answer facts OK: {scores['answer_covers_facts']}")
 
-    chunks = result.get("chunks", [])
+    if not scores["passed"]:
+        print(f"Reason: {failure_reason(scores)}")
+
+    chunks = result.get("chunks") or []
     if chunks:
-        first_chunk = chunks[0]
-        title = first_chunk.get("title", "Untitled")
-        content = " ".join(str(first_chunk.get("content", "")).split())[:180]
-        print(f"Top chunk: {title}")
-        if content:
-            print(f"Chunk preview: {content}")
+        print(f"Top chunk: {chunks[0].get('title', 'Untitled')}")
 
-    answer = " ".join(str(result.get("answer", "")).split())[:260]
-    print(f"Answer: {answer}")
+    answer = " ".join(str(result.get("answer", "")).split())[:220]
+    if answer:
+        print(f"Answer: {answer}")
 
 
-def print_summary(summary, dataset_name, dataset_path):
+def print_summary(summary):
     print("")
-    print(f"Dataset: {dataset_name}")
-    print(f"File: {dataset_path}")
-    print(f"Questions: {summary['total_questions']}")
-    print(f"Pass rate: {summary['pass_rate']}")
-    print(f"Retrieval hit rate: {summary['retrieval_hit_rate']}")
-    print(f"Average keyword match ratio: {summary['average_keyword_match_ratio']}")
-    print(f"Fallback answer rate: {summary['fallback_answer_rate']}")
-    print(f"Timeouts: {summary['timeouts']}")
-    print(f"API errors: {summary['api_errors']}")
-    print(
-        "Answer quality counts: "
-        f"good={summary['good_answers']}, "
-        f"partial={summary['partial_answers']}, "
-        f"weak={summary['weak_answers']}"
-    )
+    print(f"Dataset: {DATASET_TO_RUN}")
+    print(f"File: {DATASET_FILE}")
+    for key, value in summary.items():
+        print(f"{key}: {value}")
 
 
-def print_failed_cases(rows):
-    failed_rows = [row for row in rows if not row["scores"]["passed"]]
+def save_results(rows, summary):
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = RESULTS_DIR / f"{DATASET_TO_RUN}_latest.json"
 
-    if not failed_rows:
-        return
+    with output_path.open("w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "dataset": DATASET_TO_RUN,
+                "dataset_file": str(DATASET_FILE),
+                "summary": summary,
+                "cases": rows,
+            },
+            file,
+            indent=2,
+            ensure_ascii=False,
+        )
 
-    print("")
-    print("Failed cases:")
-    for row in failed_rows:
-        item = row["item"]
-        scores = row["scores"]
-        status = scores.get("status", "ok")
-        reason = scores.get("error_message")
-
-        if not reason:
-            if not scores["retrieval_hit"]:
-                reason = "no chunks retrieved"
-            elif scores["fallback_answer"]:
-                reason = "fallback answer"
-            elif not scores["matched_required_keywords"]:
-                reason = "required keywords missing"
-            else:
-                reason = "quality check failed"
-
-        print(f"- {item.get('id', '-')} [{status}]: {reason}")
+    print(f"Saved results: {output_path}")
 
 
-def validate_datasets():
-    for name, path in DATASET_FILES.items():
-        dataset = load_dataset(path)
-        print(f"{name}: OK ({len(dataset)} questions) -> {path}")
+def validate_dataset():
+    cases = load_cases()
+    counts = {}
+    for case in cases:
+        counts[case_group(case)] = counts.get(case_group(case), 0) + 1
+
+    print(f"all: OK ({len(cases)} questions) -> {DATASET_FILE}")
+    for name in sorted(counts):
+        print(f"{name}: {counts[name]} questions")
 
 
-def main():
+def run():
     if CHECK_DATASET_ONLY:
-        validate_datasets()
+        validate_dataset()
         return
 
-    selected_names = list(DATASET_FILES.keys()) if DATASET_TO_RUN == "all" else [DATASET_TO_RUN]
+    cases = selected_cases(load_cases())
+    rows = []
 
-    for dataset_name in selected_names:
-        dataset_path = DATASET_FILES[dataset_name]
-        dataset = load_dataset(dataset_path)
-        rows = []
+    print("")
+    print("=" * 72)
+    print(f"Running {DATASET_TO_RUN} evaluation")
+    print("=" * 72)
 
+    for index, case in enumerate(cases, start=1):
         print("")
-        print("=" * 72)
-        print(f"Running {dataset_name} evaluation")
-        print("=" * 72)
+        print(f"[{index}/{len(cases)}] Asking source={case.get('source', 'default')}")
 
-        for index, item in enumerate(dataset, start=1):
-            question = item["question"]
-            source = item.get("source", "default")
-            print("")
-            print(f"[{index}/{len(dataset)}] Asking source={source}")
+        try:
+            result = ask_backend(case["question"], case.get("source", "default"))
+            scores = score_case(case, result)
+        except socket_timeout:
+            result = {}
+            scores = error_score(case, "timeout", f"request timed out after {REQUEST_TIMEOUT}s")
+        except error.HTTPError as exc:
+            result = {}
+            body = exc.read().decode("utf-8", errors="replace")
+            scores = error_score(case, "api_error", f"HTTP {exc.code}: {body}")
+        except error.URLError as exc:
+            result = {}
+            scores = error_score(case, "api_error", f"could not reach backend at {BASE_URL}: {exc}")
 
-            try:
-                result = call_ask_api(question, source)
-                scores = score_result(item, result)
-            except socket_timeout:
-                result = {}
-                scores = score_error_result(item, "timeout", f"request timed out after {REQUEST_TIMEOUT}s")
-            except error.HTTPError as exc:
-                body = exc.read().decode("utf-8", errors="replace")
-                result = {}
-                scores = score_error_result(item, "api_error", f"HTTP {exc.code}: {body}")
-            except error.URLError as exc:
-                result = {}
-                scores = score_error_result(
-                    item,
-                    "api_error",
-                    f"could not reach backend at {BASE_URL}: {exc}",
-                )
+        rows.append({"item": case, "result": result, "scores": scores})
+        print_case(case, result, scores)
 
-            rows.append({"item": item, "scores": scores})
-            print_one_result(item, result, scores)
-
-        summary = summarize_results(rows)
-        print_summary(summary, dataset_name, dataset_path)
-        print_failed_cases(rows)
+    summary = summarize(rows)
+    print_summary(summary)
+    save_results(rows, summary)
 
 
 if __name__ == "__main__":
-    main()
+    run()

@@ -26,6 +26,8 @@ const SUGGESTED_PROMPTS = [
   "Explain the Profit-Sharing Program in simple points",
 ];
 
+const createMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 export default function ChatBox({ setSources, messages, setMessages, setIsLoadedChat }) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -36,18 +38,16 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
   const typingIntervalRef = useRef(null);
   const selectedSource = SOURCE_OPTIONS.find((item) => item.value === source) || SOURCE_OPTIONS[0];
 
-  const updateLastMessageText = (text) => {
+  const updateMessageText = (messageId, text) => {
     setMessages((prev) => {
-      if (prev.length === 0) {
-        return prev;
-      }
-
-      const updated = [...prev];
-      updated[updated.length - 1] = {
-        ...updated[updated.length - 1],
-        text,
-      };
-      return updated;
+      return prev.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              text,
+            }
+          : message
+      );
     });
   };
 
@@ -78,36 +78,39 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
 
   useEffect(() => () => stopTypingAnimation(), []);
 
-  const typeMessage = (text) => {
-    const safeText = contentToText(text);
+  const typeMessage = (messageId, text) =>
+    new Promise((resolve) => {
+      const safeText = contentToText(text);
 
-    stopTypingAnimation();
+      stopTypingAnimation();
 
-    if (!safeText) {
-      updateLastMessageText("");
-      return;
-    }
-
-    let index = 0;
-    let currentText = "";
-
-    typingIntervalRef.current = setInterval(() => {
-      currentText += safeText[index];
-      index++;
-
-      updateLastMessageText(currentText);
-
-      if (index === safeText.length) {
-        stopTypingAnimation();
+      if (!safeText) {
+        updateMessageText(messageId, "I received a response, but it did not include an answer to display.");
+        resolve();
+        return;
       }
-    }, 15); // speed (lower = faster)
-  };
+
+      let index = 0;
+      let currentText = "";
+
+      typingIntervalRef.current = setInterval(() => {
+        currentText += safeText[index];
+        index++;
+
+        updateMessageText(messageId, currentText);
+
+        if (index === safeText.length) {
+          stopTypingAnimation();
+          resolve();
+        }
+      }, 15);
+    });
 
   const handleAsk = async () => {
     const trimmedQuestion = question.trim();
     if (!trimmedQuestion || loading) return;
 
-    const userMessage = { role: "user", text: trimmedQuestion };
+    const userMessage = { id: createMessageId(), role: "user", text: trimmedQuestion };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setIsLoadedChat(false);
@@ -116,21 +119,20 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
 
     try {
       const data = await askQuestion(trimmedQuestion, source);
+      const aiMessageId = createMessageId();
 
       setMessages((prev) => {
-        const updated = [...prev, { role: "ai", text: "" }];
-
-        setTimeout(() => {
-          typeMessage(data.answer);
-        }, 100);
-
-        return updated;
+        return [...prev, { id: aiMessageId, role: "ai", text: "" }];
       });
       setSources(Array.isArray(data.chunks) ? data.chunks : []);
 
+      await typeMessage(aiMessageId, data.answer);
     } catch (err) {
       console.error(err);
-      setMessages((prev) => [...prev, { role: "ai", text: "Sorry, an error occurred." }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: createMessageId(), role: "ai", text: "Sorry, an error occurred." },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -190,7 +192,7 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
 
         <div className="flex w-full flex-col gap-4">
           {messages.map((msg, i) => (
-            <Message key={i} message={msg} />
+            <Message key={msg.id || i} message={msg} />
           ))}
         </div>
 
