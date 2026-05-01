@@ -2,6 +2,7 @@ import logging
 
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
+
 from config.paths import KEKA_SOURCE_PDF_DIR
 
 
@@ -33,8 +34,8 @@ def load_pdfs():
                     page_content=p.page_content,
                     metadata={
                         "source": "keka",
-                        "file_name": file.name
-                    }
+                        "file_name": file.name,
+                    },
                 )
             )
 

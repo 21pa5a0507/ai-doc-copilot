@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 MODEL_ONNX_FILE = "model.onnx"
 
 
-def _resolve_model_dir() -> Path:
+def resolve_model_dir() -> Path:
     override = os.getenv("ONNX_RERANKER_MODEL_DIR")
     return Path(override) if override else RERANKER_MODEL_DIR
 
 
-def _resolve_model_file(model_dir: Path) -> Path:
+def resolve_model_file(model_dir: Path) -> Path:
     for candidate in (model_dir / MODEL_ONNX_FILE, model_dir / "onnx" / MODEL_ONNX_FILE):
         if candidate.exists():
             return candidate
@@ -30,7 +30,7 @@ def _resolve_model_file(model_dir: Path) -> Path:
     )
 
 
-def _to_scores(logits: np.ndarray) -> np.ndarray:
+def to_scores(logits: np.ndarray) -> np.ndarray:
     if logits.ndim == 1:
         return 1.0 / (1.0 + np.exp(-logits))
 
@@ -47,8 +47,8 @@ class OnnxReranker:
     def __init__(self):
         import onnxruntime as ort
 
-        self.model_dir = _resolve_model_dir()
-        self.model_file = _resolve_model_file(self.model_dir)
+        self.model_dir = resolve_model_dir()
+        self.model_file = resolve_model_file(self.model_dir)
         self.provider = os.getenv("ONNX_PROVIDER", "CPUExecutionProvider")
         self.tokenizer = AutoTokenizer.from_pretrained(
             str(self.model_dir),
@@ -77,7 +77,7 @@ class OnnxReranker:
         }
         outputs = self.session.run(None, feeds)
         logits = np.asarray(outputs[0], dtype=np.float32)
-        return _to_scores(logits)
+        return to_scores(logits)
 
 
 @lru_cache(maxsize=1)

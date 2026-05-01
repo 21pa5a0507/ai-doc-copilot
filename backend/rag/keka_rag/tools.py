@@ -1,4 +1,5 @@
 import logging
+import os
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -9,10 +10,11 @@ from rag.keka_rag.rag_chain import get_llm
 logger = logging.getLogger(__name__)
 
 
+def should_use_agent_router():
+    return os.getenv("USE_KEKA_AGENT_ROUTER", "false").lower() in {"1", "true", "yes", "on"}
+
+
 def format_keka_chunks(docs):
-    """
-    Convert retrieved Keka documents into a clean text block the LLM can read.
-    """
     if not docs:
         return "No relevant Keka policy documents were found."
 
@@ -33,7 +35,7 @@ def format_keka_chunks(docs):
     return "\n\n".join(formatted_parts)
 
 
-def _docs_to_chunks(docs):
+def docs_to_chunks(docs):
     return [
         {
             "title": doc.metadata.get("file_name", "Keka document"),
@@ -44,7 +46,7 @@ def _docs_to_chunks(docs):
     ]
 
 
-def _collect_policy_names(retriever):
+def collect_policy_names(retriever):
     seen = set()
     names = []
 
@@ -60,13 +62,9 @@ def _collect_policy_names(retriever):
 
 
 def search_keka_policies(question, retriever):
-    """
-    Search the existing Keka retriever and return both normalized chunks
-    and formatted context.
-    """
     docs = retriever.invoke(question)
     formatted_context = format_keka_chunks(docs)
-    chunks = _docs_to_chunks(docs)
+    chunks = docs_to_chunks(docs)
 
     return {
         "tool_name": "search_keka_policies",
@@ -77,10 +75,7 @@ def search_keka_policies(question, retriever):
 
 
 def list_keka_policies(retriever):
-    """
-    Return the available Keka policy document names.
-    """
-    policy_names = _collect_policy_names(retriever)
+    policy_names = collect_policy_names(retriever)
     formatted_context = "\n".join(f"- {name}" for name in policy_names)
 
     if not formatted_context:
@@ -94,12 +89,9 @@ def list_keka_policies(retriever):
 
 
 def get_keka_process_steps(question, retriever):
-    """
-    Return Keka process steps or a short policy answer using Keka-only context.
-    """
     docs = retriever.invoke(question)
     formatted_context = format_keka_chunks(docs)
-    chunks = _docs_to_chunks(docs)
+    chunks = docs_to_chunks(docs)
 
     prompt = ChatPromptTemplate.from_template(
         """
@@ -147,25 +139,76 @@ Answer:
 
 
 def handle_keka_question(question, retriever, rag_chain, agent=None):
-    """
-    Handle the full Keka question flow and return the API response payload.
-    """
-    try:
-        from rag.keka_rag.keka_agent import build_keka_agent, run_keka_agent
+    lowered_question = question.lower()
 
-        active_agent = agent or build_keka_agent(retriever)
-        return run_keka_agent(question, active_agent, rag_chain)
-    except Exception as exc:
-        logger.warning("Keka agent fallback triggered: %s", exc)
+    list_keywords = (
+        "list policies",
+        "what policies",
+        "available policies",
+        "available documents",
+        "available docs",
+        "show policies",
+        "policy documents",
+    )
+    process_keywords = (
+        "how to",
+        "how do i",
+        "apply",
+        "request",
+        "claim",
+        "submit",
+        "raise",
+        "reimburse",
+        "reimbursement",
+        "process",
+        "procedure",
+        "workflow",
+        "step",
+        "steps",
+        "step-by-step",
+        "step by step",
+    )
 
-    tool_result = search_keka_policies(question, retriever)
-    chunks = tool_result["chunks"]
+    if any(keyword in lowered_question for keyword in list_keywords):
+        tool_result = list_keka_policies(retriever)
+        chunks = []
+        answer = tool_result["formatted_context"]
+    elif any(keyword in lowered_question for keyword in process_keywords):
+        tool_result = get_keka_process_steps(question, retriever)
+        chunks = tool_result["chunks"]
+        answer = tool_result["formatted_context"]
+    elif should_use_agent_router():
+        try:
+            from rag.keka_rag.keka_agent import build_keka_agent, run_keka_agent
+
+            active_agent = agent or build_keka_agent(retriever)
+            return run_keka_agent(question, active_agent, rag_chain)
+        except Exception as exc:
+            logger.warning("Keka agent fallback triggered: %s", exc)
+            tool_result = search_keka_policies(question, retriever)
+            chunks = tool_result["chunks"]
+            answer = answer_keka_question(question, rag_chain, tool_result)
+    else:
+        tool_result = search_keka_policies(question, retriever)
+        chunks = tool_result["chunks"]
+        answer = answer_keka_question(question, rag_chain, tool_result)
+
     logger.info("Keka retrieval used %s and returned %s docs", tool_result["tool_name"], len(chunks))
 
     return {
         "question": question,
         "chunks": chunks,
-        "answer": rag_chain(question, debug=False),
+        "answer": answer,
         "tool_result": tool_result,
         "tool_calls": [],
     }
+
+
+def answer_keka_question(question, rag_chain, tool_result):
+    context = tool_result.get("formatted_context", "")
+
+    if hasattr(rag_chain, "answer_with_context"):
+        return rag_chain.answer_with_context(question, context)
+
+    logger.warning("Keka rag_chain has no answer_with_context helper; falling back to full chain.")
+    return rag_chain(question, debug=False)

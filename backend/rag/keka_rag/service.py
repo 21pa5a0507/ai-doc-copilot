@@ -10,7 +10,6 @@ from config.paths import (
     LEGACY_KEKA_FAISS_DIR,
     ensure_storage_dirs,
 )
-from rag.keka_rag.keka_agent import build_keka_agent
 from rag.keka_rag.loaders import load_pdfs
 from rag.keka_rag.rag_chain import get_rag_chain
 from rag.keka_rag.retriever import get_retriever
@@ -27,7 +26,7 @@ class KekaService:
     vectorstore: Any
     retriever: Any
     rag_chain: Any
-    agent: Any
+    agent: Any = None
 
 
 def load_cached_docs():
@@ -52,7 +51,7 @@ def save_cached_docs(docs):
         logger.warning("Failed to save cached Keka docs: %s", exc)
 
 
-def _load_or_create_docs():
+def load_or_create_docs():
     docs = load_cached_docs()
 
     if docs is None:
@@ -71,13 +70,12 @@ def initialize_keka_service():
         logger.info("Loaded existing Keka FAISS index")
     except Exception as exc:
         logger.warning("Keka FAISS load failed: %s. Building a new index.", exc)
-        docs = docs or _load_or_create_docs()
+        docs = docs or load_or_create_docs()
         vectorstore = get_vectorstore(docs, path=KEKA_FAISS_EMB_DIR, legacy_path=LEGACY_KEKA_FAISS_DIR)
 
-    docs = docs or _load_or_create_docs()
+    docs = docs or load_or_create_docs()
     retriever = get_retriever(vectorstore, docs)
     rag_chain = get_rag_chain(retriever)
-    agent = build_keka_agent(retriever)
 
     logger.info("Keka RAG pipeline ready")
     return KekaService(
@@ -85,5 +83,4 @@ def initialize_keka_service():
         vectorstore=vectorstore,
         retriever=retriever,
         rag_chain=rag_chain,
-        agent=agent,
     )

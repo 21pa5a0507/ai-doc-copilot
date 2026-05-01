@@ -1,5 +1,7 @@
 from typing import List
+
 from langchain_core.embeddings import Embeddings
+
 from rag.backends.onnx_embeddings import get_embedding_model
 
 
@@ -11,17 +13,16 @@ class HFEmbeddings(Embeddings):
         return self.model.encode(
             texts,
             batch_size=32,
-            normalize_embeddings=True
+            normalize_embeddings=True,
         ).tolist()
 
     def embed_query(self, text: str) -> List[float]:
         return self.model.encode(
             [text],
-            normalize_embeddings=True
+            normalize_embeddings=True,
         )[0].tolist()
 
 
-# Singleton instance
 _embedding_instance = None
 
 

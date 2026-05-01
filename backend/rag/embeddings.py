@@ -4,9 +4,6 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 
 
 def get_embedding(texts):
-    """
-    Supports both a single string and a list of strings.
-    """
     single_input = False
 
     if isinstance(texts, str):

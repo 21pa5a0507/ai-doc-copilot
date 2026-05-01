@@ -61,7 +61,7 @@ last_combined_init_error = None
 def init_keka_pipeline():
     global keka_agent, keka_rag_chain, keka_retriever, last_keka_init_error
 
-    if keka_agent is not None and keka_retriever is not None and keka_rag_chain is not None:
+    if keka_retriever is not None and keka_rag_chain is not None:
         return
 
     try:
@@ -92,10 +92,7 @@ def init_combined_graph():
 
     if (
         vector_store is None
-        or hexnode_graph_runtime is None
-        or keka_agent is None
         or keka_retriever is None
-        or keka_rag_chain is None
     ):
         return
 
@@ -103,9 +100,6 @@ def init_combined_graph():
         combined_graph_runtime = build_combined_graph_runtime(
             vector_store,
             keka_retriever,
-            keka_rag_chain,
-            keka_agent,
-            hexnode_graph_runtime=hexnode_graph_runtime,
         )
         last_combined_init_error = None
     except Exception as exc:
@@ -114,7 +108,7 @@ def init_combined_graph():
 
 
 def ensure_keka_ready():
-    if keka_agent is not None and keka_retriever is not None and keka_rag_chain is not None:
+    if keka_retriever is not None and keka_rag_chain is not None:
         return None
 
     try:
@@ -126,12 +120,6 @@ def ensure_keka_ready():
 
 
 def ensure_combined_ready():
-    if hexnode_graph_runtime is None and vector_store is not None:
-        try:
-            init_hexnode_graph()
-        except Exception as exc:
-            logger.exception("Hexnode graph initialization failed during request: %s", exc)
-
     keka_error = ensure_keka_ready()
     if keka_error:
         return keka_error
@@ -146,7 +134,6 @@ def ensure_combined_ready():
     return None
 
 
-# Run scraper once when server starts
 @app.on_event("startup")
 async def startup_event():
     global vector_store
@@ -161,7 +148,7 @@ async def startup_event():
     except Exception as exc:
         logger.exception("Hexnode graph failed to initialize: %s", exc)
 
-    # Preload Keka RAG pipeline so source switching is ready immediately.
+    # Keep Keka ready for source switching after startup.
     try:
         init_keka_pipeline()
     except ValueError as exc:
@@ -179,7 +166,16 @@ async def startup_event():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    hexnode_ready = vector_store is not None
+    keka_ready = keka_retriever is not None and keka_rag_chain is not None
+    combined_ready = combined_graph_runtime is not None
+
+    return {
+        "status": "ok" if hexnode_ready and keka_ready else "degraded",
+        "hexnode_ready": hexnode_ready,
+        "keka_ready": keka_ready,
+        "combined_ready": combined_ready,
+    }
 
 
 @app.post("/ask")
@@ -210,10 +206,7 @@ def ask(query: Query):
             question,
             vector_store,
             keka_retriever,
-            keka_rag_chain,
-            keka_agent,
             runtime=combined_graph_runtime,
-            hexnode_graph_runtime=hexnode_graph_runtime,
         )
     elif normalized_source in {"keka", "keka_rag"}:
         keka_error = ensure_keka_ready()

@@ -29,9 +29,6 @@ BASE_DOMAIN = "hexnode.com"
 MAX_DEPTH = 3
 
 
-# -----------------------------
-# 1. GET INITIAL URLS
-# -----------------------------
 def get_all_urls():
     res = requests.get(SITEMAP_URL)
     soup = BeautifulSoup(res.text, "xml")
@@ -48,9 +45,6 @@ def get_all_urls():
     return windows_urls
 
 
-# -----------------------------
-# 2. EXTRACT LINKS FROM PAGE
-# -----------------------------
 def extract_links(html, base_url):
     soup = BeautifulSoup(html, "html.parser")
     links = set()
@@ -68,9 +62,6 @@ def extract_links(html, base_url):
     return links
 
 
-# -----------------------------
-# 3. EXTRACT MAIN CONTENT
-# -----------------------------
 def extract_main_content(html):
     soup = BeautifulSoup(html, "html.parser")
 
@@ -84,9 +75,6 @@ def extract_main_content(html):
     return main
 
 
-# -----------------------------
-# 4. HEADING CHUNKING
-# -----------------------------
 def chunk_by_headings(main_tag, page_title="", url=""):
     chunks = []
 
@@ -127,9 +115,6 @@ def normalize_url(url: str) -> str:
     return url.rstrip("/")
 
 
-# -----------------------------
-# 5. BFS CRAWLER WITH DEPTH
-# -----------------------------
 async def crawl_with_depth(start_urls):
     visited = set()
     queue = deque([(url, 0) for url in start_urls])
@@ -158,7 +143,6 @@ async def crawl_with_depth(start_urls):
                 html = result.html
                 logger.info("Visiting %s at depth %s (%s pages visited)", url, depth, len(visited))
 
-                # -------- CONTENT --------
                 soup = BeautifulSoup(html, "html.parser")
                 title = soup.title.string.strip() if soup.title and soup.title.string else ""
 
@@ -175,7 +159,6 @@ async def crawl_with_depth(start_urls):
                                 "content": content
                             })
 
-                # -------- LINKS --------
                 links = extract_links(html, url)
 
                 for link in links:
@@ -219,7 +202,7 @@ def is_valid_chunk(text):
 def chunking_docs(docs):
     chunked_data = []
 
-    seen = set()   # deduplication
+    seen = set()
     for doc in docs:
         cleaned = clean_text(doc["content"])
         sub_chunks = chunk_text(cleaned)
@@ -228,7 +211,7 @@ def chunking_docs(docs):
             if not is_valid_chunk(chunk):
                 continue
 
-            # Stable dedup key (url + content hash, not object id)
+            # Use URL plus content so repeated text on different pages stays distinct.
             key = doc["url"] + "||" + chunk
             if key in seen:
                 continue
@@ -295,8 +278,8 @@ async def scrap_website(store, raw_cache=HEXNODE_RAW_CACHE, chunk_cache=HEXNODE_
         save_json_cache(chunk_cache, chunked_docs)
 
     embedding_docs(chunked_docs, store)
-    store.build_bm25()  # Build BM25 after all chunks added
-    store.save(HEXNODE_EMB_INDEX, meta_path=HEXNODE_META_CACHE)  # Save after embedding
+    store.build_bm25()
+    store.save(HEXNODE_EMB_INDEX, meta_path=HEXNODE_META_CACHE)
 
     return True
 

@@ -39,16 +39,16 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
   const selectedSource = SOURCE_OPTIONS.find((item) => item.value === source) || SOURCE_OPTIONS[0];
 
   const updateMessageText = (messageId, text) => {
-    setMessages((prev) => {
-      return prev.map((message) =>
+    setMessages((prev) =>
+      prev.map((message) =>
         message.id === messageId
           ? {
               ...message,
               text,
             }
           : message
-      );
-    });
+      )
+    );
   };
 
   const stopTypingAnimation = () => {
@@ -78,33 +78,22 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
 
   useEffect(() => () => stopTypingAnimation(), []);
 
-  const typeMessage = (messageId, text) =>
-    new Promise((resolve) => {
-      const safeText = contentToText(text);
+  const typeMessage = (messageId, text) => {
+    const safeText = contentToText(text) || "I received a response, but it did not include an answer to display.";
+    const chunkSize = 8;
+    let index = 0;
 
-      stopTypingAnimation();
+    stopTypingAnimation();
 
-      if (!safeText) {
-        updateMessageText(messageId, "I received a response, but it did not include an answer to display.");
-        resolve();
-        return;
+    typingIntervalRef.current = setInterval(() => {
+      index = Math.min(index + chunkSize, safeText.length);
+      updateMessageText(messageId, safeText.slice(0, index));
+
+      if (index >= safeText.length) {
+        stopTypingAnimation();
       }
-
-      let index = 0;
-      let currentText = "";
-
-      typingIntervalRef.current = setInterval(() => {
-        currentText += safeText[index];
-        index++;
-
-        updateMessageText(messageId, currentText);
-
-        if (index === safeText.length) {
-          stopTypingAnimation();
-          resolve();
-        }
-      }, 15);
-    });
+    }, 80);
+  };
 
   const handleAsk = async () => {
     const trimmedQuestion = question.trim();
@@ -125,15 +114,14 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
         return [...prev, { id: aiMessageId, role: "ai", text: "" }];
       });
       setSources(Array.isArray(data.chunks) ? data.chunks : []);
-
-      await typeMessage(aiMessageId, data.answer);
+      setLoading(false);
+      typeMessage(aiMessageId, data.answer);
     } catch (err) {
       console.error(err);
       setMessages((prev) => [
         ...prev,
         { id: createMessageId(), role: "ai", text: "Sorry, an error occurred." },
       ]);
-    } finally {
       setLoading(false);
     }
   };

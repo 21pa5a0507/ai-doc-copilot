@@ -1,4 +1,5 @@
 import logging
+import os
 
 from rag.embeddings import get_embedding as embed_text
 from rag.answer_generator import generate_answer
@@ -7,10 +8,11 @@ from rag.answer_generator import generate_answer
 logger = logging.getLogger(__name__)
 
 
+def should_use_graph_fallback():
+    return os.getenv("USE_HEXNODE_GRAPH_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
+
+
 def format_hexnode_chunks(chunks):
-    """
-    Convert retrieved chunks into a clean text block the LLM can read.
-    """
     if not chunks:
         return "No relevant Hexnode documentation was found."
 
@@ -32,9 +34,6 @@ def format_hexnode_chunks(chunks):
 
 
 def list_hexnode_topics(vector_store):
-    """
-    Return the distinct titles/topics available in the Hexnode vector store.
-    """
     seen = set()
     topics = []
 
@@ -71,10 +70,6 @@ def list_hexnode_topics(vector_store):
 
 
 def search_hexnode_docs(question, vector_store):
-    """
-    Search the existing Hexnode/general docs vector store and return
-    both structured chunks and formatted context.
-    """
     query_embedding = embed_text(question)
     chunks = vector_store.search(query_embedding, question)
     formatted_context = format_hexnode_chunks(chunks)
@@ -88,9 +83,6 @@ def search_hexnode_docs(question, vector_store):
 
 
 def get_hexnode_setup_steps(question, vector_store):
-    """
-    Return likely setup or enrollment steps grounded in retrieved Hexnode docs.
-    """
     search_result = search_hexnode_docs(question, vector_store)
     chunks = search_result["chunks"]
 
@@ -111,16 +103,6 @@ def get_hexnode_setup_steps(question, vector_store):
 
 
 def handle_hexnode_question(question, vector_store, answer_generator, graph_runtime=None):
-    """
-    Handle the full Hexnode/default question flow and return the API response payload.
-    """
-    try:
-        from rag.hexnode_graph import run_hexnode_graph
-
-        return run_hexnode_graph(question, vector_store, runtime=graph_runtime)
-    except Exception as exc:
-        logger.warning("Hexnode graph fallback triggered: %s", exc)
-
     lowered_question = question.lower()
 
     topic_keywords = (
@@ -165,6 +147,16 @@ def handle_hexnode_question(question, vector_store, answer_generator, graph_runt
         tool_result = get_hexnode_setup_steps(question, vector_store)
         chunks = tool_result["chunks"]
         answer = tool_result["formatted_context"]
+    elif should_use_graph_fallback():
+        try:
+            from rag.hexnode_graph import run_hexnode_graph
+
+            return run_hexnode_graph(question, vector_store, runtime=graph_runtime)
+        except Exception as exc:
+            logger.warning("Hexnode graph fallback triggered: %s", exc)
+            tool_result = search_hexnode_docs(question, vector_store)
+            chunks = tool_result["chunks"]
+            answer = answer_generator(question, chunks)
     else:
         tool_result = search_hexnode_docs(question, vector_store)
         chunks = tool_result["chunks"]

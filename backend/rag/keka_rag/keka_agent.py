@@ -38,7 +38,7 @@ _REQUEST_STATE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
 )
 
 
-def _store_tool_result(result: Dict[str, Any], tool_name: str, args: Dict[str, Any]) -> None:
+def store_tool_result(result: Dict[str, Any], tool_name: str, args: Dict[str, Any]) -> None:
     request_state = _REQUEST_STATE.get()
     if request_state is None:
         return
@@ -53,7 +53,7 @@ def _store_tool_result(result: Dict[str, Any], tool_name: str, args: Dict[str, A
 
 
 @contextmanager
-def _request_state_scope(question: str):
+def request_state_scope(question: str):
     request_state: Dict[str, Any] = {
         "latest_tool_result": {
             "tool_name": None,
@@ -76,21 +76,21 @@ def build_keka_agent(retriever):
     def search_keka_policies_tool(question: str) -> str:
         """Search Keka policies for policy rules, eligibility, leave, insurance, benefits, and HR information."""
         result = search_keka_policies(question, retriever)
-        _store_tool_result(result, result["tool_name"], {"question": question})
+        store_tool_result(result, result["tool_name"], {"question": question})
         return result["formatted_context"]
 
     @tool
     def list_keka_policies_tool() -> str:
         """List the available Keka policy document names."""
         result = list_keka_policies(retriever)
-        _store_tool_result(result, result["tool_name"], {})
+        store_tool_result(result, result["tool_name"], {})
         return result["formatted_context"]
 
     @tool
     def get_keka_process_steps_tool(question: str) -> str:
         """Get Keka HR process steps for applying, requesting, claiming, or submitting something."""
         result = get_keka_process_steps(question, retriever)
-        _store_tool_result(result, result["tool_name"], {"question": question})
+        store_tool_result(result, result["tool_name"], {"question": question})
         return result["formatted_context"]
 
     return create_agent(
@@ -107,7 +107,7 @@ def build_keka_agent(retriever):
 
 
 def run_keka_agent(question: str, agent, rag_chain) -> Dict[str, Any]:
-    with _request_state_scope(question) as request_state:
+    with request_state_scope(question) as request_state:
         result = agent.invoke(
             {
                 "messages": [

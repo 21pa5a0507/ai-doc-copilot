@@ -20,13 +20,10 @@ MODEL_NAME = PRIMARY_MODEL
 
 
 def generate_answer(question, chunks, mode="answer"):
-    """
-    Generate an answer using the provided context chunks.
-    """
+    context = "\n\n".join(
+        [f"Title: {chunk['title']}\nContent: {chunk['content']}" for chunk in chunks]
+    )
 
-    context = "\n\n".join([f"Title: {chunk['title']}\nContent: {chunk['content']}" for chunk in chunks])
-
-    # Base instructions to ensure consistent formatting across all modes
     base_instructions = (
         "You are an expert Hexnode Documentation Assistant. "
         "Use ONLY the provided context. If the answer isn't there, say 'Information not found.' "
@@ -36,7 +33,7 @@ def generate_answer(question, chunks, mode="answer"):
     if mode == "topics":
         prompt = f"""
         {base_instructions}
-        
+
         ### TASK: CATEGORIZED OVERVIEW
         1. Review the context and identify the main themes (e.g., Enrollment, Security, Network).
         2. Group related features or settings under these themes.
@@ -57,7 +54,7 @@ def generate_answer(question, chunks, mode="answer"):
     elif mode == "steps":
         prompt = f"""
         {base_instructions}
-        
+
         ### TASK: PROCEDURAL STEP EXTRACTION
         1. Determine the exact action the user needs to complete.
         2. Convert the provided context into a clear, ordered sequence of steps.
@@ -80,10 +77,10 @@ def generate_answer(question, chunks, mode="answer"):
         (If a procedure cannot be extracted, provide a short direct answer instead.)
         """
 
-    else: # Default "answer" mode
+    else:
         prompt = f"""
         {base_instructions}
-        
+
         ### TASK: DIRECT Q&A
         1. Find the specific answer to the user's question.
         2. Provide a concise but complete response.
@@ -116,10 +113,6 @@ def generate_answer(question, chunks, mode="answer"):
 
 
 def get_gemini_models():
-    """
-    Returns model names from the configured Gemini client.
-    Falls back gracefully if generation-method metadata is unavailable.
-    """
     available_models = []
 
     try:

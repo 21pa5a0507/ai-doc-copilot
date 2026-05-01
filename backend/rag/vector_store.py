@@ -11,9 +11,7 @@ from rag.backends.onnx_reranker import get_reranker_model
 
 logger = logging.getLogger(__name__)
 
-# -------------------------------
-# Reranker
-# -------------------------------
+
 class Reranker:
     def __init__(self):
         self.model = get_reranker_model()
@@ -32,7 +30,7 @@ class Reranker:
         ranked = sorted(
             zip(chunks, scores),
             key=lambda x: x[1],
-            reverse=True
+            reverse=True,
         )
 
         return [chunk for chunk, _ in ranked[:top_k]]
@@ -40,14 +38,9 @@ class Reranker:
 
 class VectorStore:
     def __init__(self, dim=384):
-        # FAISS index (cosine similarity using inner product)
         self.index = faiss.IndexFlatIP(dim)
-
-        # Stored data
         self.chunks = []
         self.embeddings = []
-
-        # BM25
         self.tokenized_chunks = []
         self.bm25 = None
         self.reranker = Reranker()
@@ -60,11 +53,14 @@ class VectorStore:
         meta_path = Path(meta_path) if meta_path else path.with_name(path.name + "_meta.pkl")
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         with meta_path.open("wb") as f:
-            pickle.dump({
-                "text_chunks": self.chunks,
-                "tokenized_chunks": self.tokenized_chunks
-            }, f)
-    
+            pickle.dump(
+                {
+                    "text_chunks": self.chunks,
+                    "tokenized_chunks": self.tokenized_chunks,
+                },
+                f,
+            )
+
     def load(self, path, meta_path=None):
         path = Path(path)
         meta_path = Path(meta_path) if meta_path else path.with_name(path.name + "_meta.pkl")
@@ -83,13 +79,9 @@ class VectorStore:
 
         return False
 
-    # -----------------------------
-    # ADD DATA
-    # -----------------------------
     def add(self, embedding, chunk):
         embedding = np.array(embedding).astype("float32")
 
-        # Normalize for cosine similarity
         embedding = embedding / np.linalg.norm(embedding)
 
         self.index.add(np.array([embedding]))
@@ -97,13 +89,9 @@ class VectorStore:
         self.embeddings.append(embedding)
         self.chunks.append(chunk)
 
-        # Tokenize for BM25
         tokens = chunk["content"].lower().split()
         self.tokenized_chunks.append(tokens)
 
-    # -----------------------------
-    # BUILD BM25 (call AFTER all data added)
-    # -----------------------------
     def build_bm25(self):
         if not self.tokenized_chunks:
             logger.info("Skipping BM25 build because no chunks were loaded")
@@ -112,18 +100,11 @@ class VectorStore:
         self.bm25 = BM25Okapi(self.tokenized_chunks)
         logger.info("BM25 built on %s chunks", len(self.tokenized_chunks))
 
-    # -----------------------------
-    # SEARCH (HYBRID)
-    # -----------------------------
     def search(self, query_embedding, query, top_k=5):
         query_embedding = np.array(query_embedding).astype("float32")
 
-        # Normalize query embedding
         query_embedding = query_embedding / np.linalg.norm(query_embedding)
 
-        # -----------------------------
-        # 1. VECTOR SEARCH
-        # -----------------------------
         distances, indices = self.index.search(np.array([query_embedding]), top_k * 2)
 
         vector_results = []
@@ -135,9 +116,6 @@ class VectorStore:
                     "source": "vector"
                 })
 
-        # -----------------------------
-        # 2. BM25 SEARCH
-        # -----------------------------
         bm25_results = []
         if self.bm25:
             tokenized_query = query.lower().split()
@@ -152,9 +130,6 @@ class VectorStore:
                     "source": "bm25"
                 })
 
-        # -----------------------------
-        # 3. NORMALIZATION FUNCTION
-        # -----------------------------
         def normalize(results):
             if not results:
                 return results
@@ -173,19 +148,10 @@ class VectorStore:
         vector_results = normalize(vector_results)
         bm25_results = normalize(bm25_results)
 
-        # -----------------------------
-        # 4. COMBINE
-        # -----------------------------
         combined = vector_results + bm25_results
 
-        # -----------------------------
-        # 5. SORT
-        # -----------------------------
         combined = sorted(combined, key=lambda x: x["score"], reverse=True)
 
-        # -----------------------------
-        # 6. DEDUPLICATION
-        # -----------------------------
         seen = set()
         final_results = []
 

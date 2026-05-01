@@ -56,11 +56,12 @@ class HexnodeGraphRuntime:
 
 
 @lru_cache(maxsize=1)
-def _get_llm():
+def get_llm():
     return ChatGoogleGenerativeAI(
         model=PRIMARY_MODEL,
         temperature=0.2,
         google_api_key=get_google_api_key(),
+        max_retries=0,
     )
 
 
@@ -102,7 +103,7 @@ def build_hexnode_graph_runtime(vector_store) -> HexnodeGraphRuntime:
         "list_hexnode_topics_tool": run_topics_tool,
         "get_hexnode_setup_steps_tool": run_steps_tool,
     }
-    llm = _get_llm().bind_tools(tools)
+    llm = get_llm().bind_tools(tools)
 
     graph = StateGraph(HexnodeGraphState)
 

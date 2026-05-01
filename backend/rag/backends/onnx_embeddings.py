@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 MODEL_ONNX_FILE = "model.onnx"
 
 
-def _resolve_model_dir(model_name: str) -> Path:
+def resolve_model_dir(model_name: str) -> Path:
     if model_name == "all-MiniLM-L6-v2":
         override = os.getenv("ONNX_MODEL_DIR_ALL_MINILM_L6_V2")
         return Path(override) if override else HEXNODE_EMBEDDING_MODEL_DIR
@@ -26,7 +26,7 @@ def _resolve_model_dir(model_name: str) -> Path:
     raise ValueError(f"Unsupported embedding model: {model_name}")
 
 
-def _resolve_model_file(model_dir: Path) -> Path:
+def resolve_model_file(model_dir: Path) -> Path:
     model_file = model_dir / MODEL_ONNX_FILE
     if model_file.exists():
         return model_file
@@ -41,14 +41,14 @@ def _resolve_model_file(model_dir: Path) -> Path:
     )
 
 
-def _mean_pool(token_embeddings: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
+def mean_pool(token_embeddings: np.ndarray, attention_mask: np.ndarray) -> np.ndarray:
     mask = attention_mask[..., None].astype(np.float32)
     summed = (token_embeddings * mask).sum(axis=1)
     counts = np.clip(mask.sum(axis=1), a_min=1e-9, a_max=None)
     return summed / counts
 
 
-def _normalize_rows(matrix: np.ndarray) -> np.ndarray:
+def normalize_rows(matrix: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms = np.clip(norms, a_min=1e-12, a_max=None)
     return matrix / norms
@@ -58,8 +58,8 @@ class OnnxEmbeddingModel:
     def __init__(self, model_name: str):
         import onnxruntime as ort
 
-        self.model_dir = _resolve_model_dir(model_name)
-        self.model_file = _resolve_model_file(self.model_dir)
+        self.model_dir = resolve_model_dir(model_name)
+        self.model_file = resolve_model_file(self.model_dir)
         self.provider = os.getenv("ONNX_PROVIDER", "CPUExecutionProvider")
         self.tokenizer = AutoTokenizer.from_pretrained(
             str(self.model_dir),
@@ -92,9 +92,9 @@ class OnnxEmbeddingModel:
                 if name in self.input_names
             }
             outputs = self.session.run(None, feeds)
-            pooled = _mean_pool(outputs[0], encoded["attention_mask"])
+            pooled = mean_pool(outputs[0], encoded["attention_mask"])
             if normalize_embeddings:
-                pooled = _normalize_rows(pooled)
+                pooled = normalize_rows(pooled)
             batches.append(pooled.astype(np.float32))
 
         return np.concatenate(batches, axis=0) if batches else np.empty((0, 0), dtype=np.float32)

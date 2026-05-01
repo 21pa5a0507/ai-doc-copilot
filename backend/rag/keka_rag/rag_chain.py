@@ -1,3 +1,4 @@
+import logging
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -13,6 +14,8 @@ from rag.gemini_models import (
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 
 @lru_cache(maxsize=1)
 def get_llm():
@@ -20,11 +23,13 @@ def get_llm():
         model=PRIMARY_MODEL,
         temperature=0.3,
         google_api_key=get_google_api_key(),
+        max_retries=0,
     )
 
-def get_rag_chain(retriever):
 
-    prompt = ChatPromptTemplate.from_template("""
+def get_rag_chain(retriever):
+    prompt = ChatPromptTemplate.from_template(
+        """
 You are an expert assistant for Keka HR platform.
 
 Rules:
@@ -40,28 +45,28 @@ Question:
 {question}
 
 Answer:
-""")
+"""
+    )
 
     llm = get_llm()
     client = get_genai_client()
 
     def format_docs(docs):
         return "\n\n".join(
-            f"[{d.metadata.get('file_name')}]\n{d.page_content}"
-            for d in docs
+            f"[{d.metadata.get('file_name')}]\n{d.page_content}" for d in docs
         )
 
     def answer_with_context(query: str, context: str):
         rendered_prompt = prompt.format(
             context=context,
-            question=query
+            question=query,
         )
 
         try:
             response = llm.invoke(rendered_prompt)
             return content_to_text(response.content)
         except Exception as exc:
-            print(f"Keka rag_chain fallback triggered: {exc}")
+            logger.warning("Keka rag_chain fallback triggered: %s", exc)
 
         answer = generate_text_with_fallback(client, rendered_prompt)
         if answer:
@@ -73,9 +78,7 @@ Answer:
         docs = retriever.invoke(query)
 
         if debug:
-            print("\nRetrieved docs:")
-            for d in docs:
-                print(d.metadata)
+            logger.debug("Retrieved docs: %s", [doc.metadata for doc in docs])
 
         context = format_docs(docs)
         return answer_with_context(query, context)

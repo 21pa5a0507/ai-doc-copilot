@@ -1,8 +1,9 @@
-import os
 import logging
+import os
 from pathlib import Path
 
 from langchain_community.vectorstores import FAISS
+
 from config.paths import KEKA_FAISS_EMB_DIR
 from rag.keka_rag.embeddings import get_embeddings
 
@@ -20,7 +21,7 @@ def load_vectorstore(path):
         db = FAISS.load_local(
             str(path),
             get_embeddings(),
-            allow_dangerous_deserialization=True
+            allow_dangerous_deserialization=True,
         )
         logger.info("Loaded Keka FAISS index")
         return db
@@ -38,7 +39,7 @@ def create_vectorstore(chunks, path):
 
     db = FAISS.from_documents(
         documents=chunks,
-        embedding=get_embeddings()
+        embedding=get_embeddings(),
     )
 
     os.makedirs(path, exist_ok=True)
