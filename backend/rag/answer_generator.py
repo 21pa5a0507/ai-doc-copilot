@@ -18,6 +18,39 @@ client = get_genai_client()
 
 MODEL_NAME = PRIMARY_MODEL
 
+GREETINGS = {
+    "hi",
+    "hai",
+    "hello",
+    "hey",
+    "hiya",
+    "good morning",
+    "good afternoon",
+    "good evening",
+}
+
+
+def get_greeting_response(question: str, source: str):
+    normalized_question = " ".join(question.lower().strip(" !?.").split())
+
+    if normalized_question not in GREETINGS:
+        return None
+
+    source_labels = {
+        "keka": "Keka policies",
+        "keka_rag": "Keka policies",
+        "both": "Hexnode docs and Keka policies",
+    }
+    topic = source_labels.get(source.lower(), "Hexnode")
+
+    return {
+        "question": question,
+        "chunks": [],
+        "answer": f"Hello! How can I help you with {topic}?",
+        "source": source,
+        "tool_calls": [],
+    }
+
 
 def generate_answer(question, chunks, mode="answer"):
     context = "\n\n".join(

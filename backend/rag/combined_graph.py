@@ -52,11 +52,11 @@ def format_result_section(title: str, result: Optional[Dict[str, Any]]) -> str:
 
     if chunks:
         chunk_lines = []
-        for index, chunk in enumerate(chunks[:3], start=1):
+        for index, chunk in enumerate(chunks[:5], start=1):
             chunk_title = chunk.get("title", "Untitled")
             chunk_content = (chunk.get("content") or "").strip().replace("\n", " ")
-            if len(chunk_content) > 300:
-                chunk_content = f"{chunk_content[:300].rstrip()}..."
+            if len(chunk_content) > 900:
+                chunk_content = f"{chunk_content[:900].rstrip()}..."
             chunk_lines.append(f"{index}. {chunk_title}: {chunk_content}")
         evidence = "\n".join(chunk_lines)
     else:

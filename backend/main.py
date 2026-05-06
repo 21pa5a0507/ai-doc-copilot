@@ -21,7 +21,7 @@ if sys.platform.startswith("win"):
 
 from fastapi import FastAPI
 from rag.rag_initializer import initialize_vector_store
-from rag.answer_generator import generate_answer
+from rag.answer_generator import generate_answer, get_greeting_response
 from rag.combined_graph import build_combined_graph_runtime, run_combined_graph
 from rag.hexnode_graph import build_hexnode_graph_runtime
 from rag.hexnode_tools import handle_hexnode_question
@@ -183,6 +183,10 @@ def ask(query: Query):
     logger.info("Received question for source=%s", query.source)
     question = query.question
     normalized_source = query.source.lower()
+    greeting_response = get_greeting_response(question, query.source)
+
+    if greeting_response is not None:
+        return greeting_response
 
     if normalized_source == "both":
         if vector_store is None:

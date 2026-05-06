@@ -1,4 +1,6 @@
 .git
+README.md
+architecture.md
 frontend/
 keka_data/
 frontend/node_modules/
