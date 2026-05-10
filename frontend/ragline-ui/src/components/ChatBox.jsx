@@ -19,6 +19,11 @@ const SOURCE_OPTIONS = [
     label: "Both Sources",
     hint: "Combine Hexnode device guidance with Keka HR policies in one grounded answer",
   },
+  {
+    value: "workflow",
+    label: "Support Workflow",
+    hint: "Troubleshoot issues, create Jira tickets, close fixed issues, and request Jira-approved deletion",
+  },
 ];
 
 const SUGGESTED_PROMPTS = [
@@ -107,7 +112,16 @@ export default function ChatBox({ setSources, messages, setMessages, setIsLoaded
     setLoading(true);
 
     try {
-      const data = await askQuestion(trimmedQuestion, source);
+      const history = source === "workflow"
+        ? messages
+            .slice(-5)
+            .map((message) => ({
+              role: message.role,
+              text: contentToText(message.text),
+            }))
+            .filter((message) => message.text)
+        : [];
+      const data = await askQuestion(trimmedQuestion, source, history);
       const aiMessageId = createMessageId();
 
       setMessages((prev) => {

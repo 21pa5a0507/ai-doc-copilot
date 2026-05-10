@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 from rag.embeddings import get_embedding as embed_text
 from rag.answer_generator import generate_answer
@@ -70,15 +71,23 @@ def list_hexnode_topics(vector_store):
 
 
 def search_hexnode_docs(question, vector_store):
+    embed_start = time.perf_counter()
     query_embedding = embed_text(question)
+    embedding_seconds = round(time.perf_counter() - embed_start, 4)
+
     chunks = vector_store.search(query_embedding, question)
     formatted_context = format_hexnode_chunks(chunks)
+    timings = {
+        "embedding_seconds": embedding_seconds,
+        **getattr(vector_store, "last_timings", {}),
+    }
 
     return {
         "tool_name": "search_hexnode_docs",
         "question": question,
         "chunks": chunks,
         "formatted_context": formatted_context,
+        "timings": timings,
     }
 
 
@@ -91,14 +100,21 @@ def get_hexnode_setup_steps(question, vector_store):
             "No relevant Hexnode documentation was found for this query. "
             "Provide the best direct guidance you can based on the question."
         )
+        answer_seconds = 0.0
     else:
+        answer_start = time.perf_counter()
         formatted_context = generate_answer(question, chunks, mode="steps")
+        answer_seconds = round(time.perf_counter() - answer_start, 4)
+
+    timings = dict(search_result.get("timings", {}))
+    timings["answer_seconds"] = answer_seconds
 
     return {
         "tool_name": "get_hexnode_setup_steps",
         "question": question,
         "chunks": chunks,
         "formatted_context": formatted_context,
+        "timings": timings,
     }
 
 
@@ -160,7 +176,9 @@ def handle_hexnode_question(question, vector_store, answer_generator, graph_runt
     else:
         tool_result = search_hexnode_docs(question, vector_store)
         chunks = tool_result["chunks"]
+        answer_start = time.perf_counter()
         answer = answer_generator(question, chunks)
+        tool_result["timings"]["answer_seconds"] = round(time.perf_counter() - answer_start, 4)
 
     logger.info("Hexnode retrieval used %s and returned %s chunks", tool_result["tool_name"], len(chunks))
 
@@ -170,4 +188,5 @@ def handle_hexnode_question(question, vector_store, answer_generator, graph_runt
         "answer": answer,
         "tool_result": tool_result,
         "tool_calls": [],
+        "timings": tool_result.get("timings", {}),
     }

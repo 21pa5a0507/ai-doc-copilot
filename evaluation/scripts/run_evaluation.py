@@ -9,7 +9,7 @@ DATASET_FILE = PROJECT_ROOT / "evaluation" / "dataset" / "questions.json"
 RESULTS_DIR = PROJECT_ROOT / "evaluation" / "results"
 
 BASE_URL = "http://localhost:8000"
-DATASET_TO_RUN = "all"  # all, hexnode, keka, combined
+DATASET_TO_RUN = "all"  # all, hexnode, keka, combined, workflow
 REQUEST_TIMEOUT = 120
 CHECK_DATASET_ONLY = False
 
@@ -30,6 +30,8 @@ def case_group(case):
         return "hexnode"
     if source == "both":
         return "combined"
+    if source == "workflow":
+        return "workflow"
     return source
 
 
@@ -102,6 +104,8 @@ def actual_sources(result):
         found.add("keka")
     elif source == "both":
         found.update({"hexnode", "keka"})
+    elif source in {"workflow", "workflow_agent"}:
+        found.add("workflow")
 
     for source_name in (result.get("source_results") or {}).keys():
         found.add(text(source_name).strip())
@@ -149,10 +153,21 @@ def score_case(case, result):
     retrieval_relevant = bool(matched_chunk_keywords)
     answer_covers_facts = bool(matched_answer_keywords)
     fallback = is_fallback(answer)
-    hallucination_risk = bool(answer and not fallback and not retrieval_relevant)
+    hallucination_risk = bool(
+        answer
+        and not fallback
+        and not retrieval_relevant
+        and case_group(case) != "workflow"
+    )
 
     if case.get("out_of_scope"):
         passed = fallback or not answer
+    elif case_group(case) == "workflow":
+        passed = (
+            source_ok
+            and answer_covers_facts
+            and not fallback
+        )
     else:
         passed = (
             source_ok
@@ -209,6 +224,31 @@ def rate(rows, key):
     return round(sum(1 for row in rows if row["scores"][key]) / len(rows), 2)
 
 
+def flatten_timings(timings):
+    flat = {}
+
+    for key, value in (timings or {}).items():
+        if isinstance(value, (int, float)):
+            flat[key] = float(value)
+
+    return flat
+
+
+def average_timings(rows):
+    totals = {}
+    counts = {}
+
+    for row in rows:
+        for key, value in flatten_timings(row["result"].get("timings")).items():
+            totals[key] = totals.get(key, 0.0) + value
+            counts[key] = counts.get(key, 0) + 1
+
+    return {
+        key: round(totals[key] / counts[key], 4)
+        for key in sorted(totals)
+    }
+
+
 def summarize(rows):
     return {
         "total_questions": len(rows),
@@ -220,6 +260,7 @@ def summarize(rows):
         "answer_fact_coverage_rate": rate(rows, "answer_covers_facts"),
         "fallback_rate": rate(rows, "fallback"),
         "hallucination_risk_rate": rate(rows, "hallucination_risk"),
+        "average_timings": average_timings(rows),
     }
 
 
@@ -228,6 +269,12 @@ def failure_reason(scores):
         return scores["error_message"]
     if not scores["source_ok"]:
         return "wrong source selected"
+    if "workflow" in scores["expected_sources"]:
+        if scores["fallback"]:
+            return "fallback answer"
+        if not scores["answer_covers_facts"]:
+            return "workflow answer missed expected facts"
+        return "workflow response check failed"
     if not scores["document_ok"]:
         return "expected document/title was not retrieved"
     if not scores["retrieval_hit"]:
@@ -263,6 +310,11 @@ def print_case(case, result, scores):
     answer = " ".join(str(result.get("answer", "")).split())[:220]
     if answer:
         print(f"Answer: {answer}")
+
+    timings = flatten_timings(result.get("timings"))
+    if timings:
+        timing_text = ", ".join(f"{key}={value}s" for key, value in timings.items())
+        print(f"Timings: {timing_text}")
 
 
 def print_summary(summary):

@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -65,12 +66,14 @@ def search_keka_policies(question, retriever):
     docs = retriever.invoke(question)
     formatted_context = format_keka_chunks(docs)
     chunks = docs_to_chunks(docs)
+    timings = getattr(retriever, "last_timings", {})
 
     return {
         "tool_name": "search_keka_policies",
         "question": question,
         "chunks": chunks,
         "formatted_context": formatted_context,
+        "timings": timings,
     }
 
 
@@ -92,6 +95,7 @@ def get_keka_process_steps(question, retriever):
     docs = retriever.invoke(question)
     formatted_context = format_keka_chunks(docs)
     chunks = docs_to_chunks(docs)
+    timings = dict(getattr(retriever, "last_timings", {}))
 
     prompt = ChatPromptTemplate.from_template(
         """
@@ -124,17 +128,22 @@ Answer:
         question=question,
     )
     try:
+        answer_start = time.perf_counter()
         response = llm.invoke(rendered_prompt)
         answer = response.content
+        timings["answer_seconds"] = round(time.perf_counter() - answer_start, 4)
     except Exception as exc:
         logger.warning("Keka process-steps fallback triggered: %s", exc)
+        answer_start = time.perf_counter()
         answer = generate_text_with_fallback(client, rendered_prompt) or "I don't know"
+        timings["answer_seconds"] = round(time.perf_counter() - answer_start, 4)
 
     return {
         "tool_name": "get_keka_process_steps",
         "question": question,
         "chunks": chunks,
         "formatted_context": answer,
+        "timings": timings,
     }
 
 
@@ -187,11 +196,15 @@ def handle_keka_question(question, retriever, rag_chain, agent=None):
             logger.warning("Keka agent fallback triggered: %s", exc)
             tool_result = search_keka_policies(question, retriever)
             chunks = tool_result["chunks"]
+            answer_start = time.perf_counter()
             answer = answer_keka_question(question, rag_chain, tool_result)
+            tool_result["timings"]["answer_seconds"] = round(time.perf_counter() - answer_start, 4)
     else:
         tool_result = search_keka_policies(question, retriever)
         chunks = tool_result["chunks"]
+        answer_start = time.perf_counter()
         answer = answer_keka_question(question, rag_chain, tool_result)
+        tool_result["timings"]["answer_seconds"] = round(time.perf_counter() - answer_start, 4)
 
     logger.info("Keka retrieval used %s and returned %s docs", tool_result["tool_name"], len(chunks))
 
@@ -201,6 +214,7 @@ def handle_keka_question(question, retriever, rag_chain, agent=None):
         "answer": answer,
         "tool_result": tool_result,
         "tool_calls": [],
+        "timings": tool_result.get("timings", {}),
     }
 
 

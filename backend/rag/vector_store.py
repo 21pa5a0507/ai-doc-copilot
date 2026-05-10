@@ -3,6 +3,7 @@ import numpy as np
 import logging
 import os
 import pickle
+import time
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
@@ -44,6 +45,7 @@ class VectorStore:
         self.tokenized_chunks = []
         self.bm25 = None
         self.reranker = Reranker()
+        self.last_timings = {}
 
     def save(self, path, meta_path=None):
         path = Path(path)
@@ -101,11 +103,16 @@ class VectorStore:
         logger.info("BM25 built on %s chunks", len(self.tokenized_chunks))
 
     def search(self, query_embedding, query, top_k=5):
+        total_start = time.perf_counter()
+        timings = {}
+
+        vector_start = time.perf_counter()
         query_embedding = np.array(query_embedding).astype("float32")
 
         query_embedding = query_embedding / np.linalg.norm(query_embedding)
 
         distances, indices = self.index.search(np.array([query_embedding]), top_k * 2)
+        timings["vector_search_seconds"] = round(time.perf_counter() - vector_start, 4)
 
         vector_results = []
         for score, idx in zip(distances[0], indices[0]):
@@ -118,6 +125,7 @@ class VectorStore:
 
         bm25_results = []
         if self.bm25:
+            bm25_start = time.perf_counter()
             tokenized_query = query.lower().split()
             scores = self.bm25.get_scores(tokenized_query)
 
@@ -129,6 +137,9 @@ class VectorStore:
                     "score": float(scores[idx]),
                     "source": "bm25"
                 })
+            timings["bm25_seconds"] = round(time.perf_counter() - bm25_start, 4)
+        else:
+            timings["bm25_seconds"] = 0.0
 
         def normalize(results):
             if not results:
@@ -165,7 +176,12 @@ class VectorStore:
             if len(final_results) >= top_k:
                 break
 
+        rerank_start = time.perf_counter()
         reranked = self.reranker.rerank(query, final_results, top_k=top_k)
+        timings["rerank_seconds"] = round(time.perf_counter() - rerank_start, 4)
+        timings["retrieval_total_seconds"] = round(time.perf_counter() - total_start, 4)
+        self.last_timings = timings
+
         logger.info(
             "Hybrid search candidates: vector=%s, bm25=%s, unique=%s, reranked=%s",
             len(vector_results),

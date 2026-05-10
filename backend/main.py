@@ -1,6 +1,8 @@
 import asyncio
 import sys
 import logging
+import os
+import time
 
 from config.paths import BACKEND_LOG_FILE, ensure_storage_dirs
 
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from rag.rag_initializer import initialize_vector_store
 from rag.answer_generator import generate_answer, get_greeting_response
 from rag.combined_graph import build_combined_graph_runtime, run_combined_graph
@@ -27,15 +29,23 @@ from rag.hexnode_graph import build_hexnode_graph_runtime
 from rag.hexnode_tools import handle_hexnode_question
 from rag.keka_rag.service import initialize_keka_service
 from rag.keka_rag.tools import handle_keka_question
+from rag.workflow_agent.jira_client import process_delete_approvals
+from rag.workflow_agent.main import run_workflow_agent
 from fastapi.middleware.cors import CORSMiddleware
 
 
 from pydantic import BaseModel
 
 
+class ChatHistoryMessage(BaseModel):
+    role: str
+    text: str
+
+
 class Query(BaseModel):
     question: str
     source: str = "default"
+    history: list[ChatHistoryMessage] = []
 
 app = FastAPI()
 
@@ -178,14 +188,30 @@ def health_check():
     }
 
 
+@app.post("/workflow/process-delete-approvals")
+def process_workflow_delete_approvals(
+    x_workflow_scheduler_token: str = Header(default=""),
+):
+    expected_token = os.getenv("WORKFLOW_SCHEDULER_TOKEN", "")
+
+    if expected_token and x_workflow_scheduler_token != expected_token:
+        raise HTTPException(status_code=401, detail="Invalid scheduler token")
+
+    return process_delete_approvals()
+
+
 @app.post("/ask")
 def ask(query: Query):
+    request_start = time.perf_counter()
     logger.info("Received question for source=%s", query.source)
     question = query.question
     normalized_source = query.source.lower()
     greeting_response = get_greeting_response(question, query.source)
 
     if greeting_response is not None:
+        greeting_response["timings"] = {
+            "request_total_seconds": round(time.perf_counter() - request_start, 4),
+        }
         return greeting_response
 
     if normalized_source == "both":
@@ -195,6 +221,9 @@ def ask(query: Query):
                 "chunks": [],
                 "answer": "❌ Hexnode knowledge base is not initialized yet. Start the vector-store setup or enable the startup initializer before asking combined questions.",
                 "source": query.source,
+                "timings": {
+                    "request_total_seconds": round(time.perf_counter() - request_start, 4),
+                },
             }
 
         combined_error = ensure_combined_ready()
@@ -204,6 +233,9 @@ def ask(query: Query):
                 "chunks": [],
                 "answer": f"❌ Keka RAG not available right now. Initialization failed with: {combined_error}",
                 "source": query.source,
+                "timings": {
+                    "request_total_seconds": round(time.perf_counter() - request_start, 4),
+                },
             }
 
         response = run_combined_graph(
@@ -212,6 +244,25 @@ def ask(query: Query):
             keka_retriever,
             runtime=combined_graph_runtime,
         )
+    elif normalized_source in {"workflow", "workflow_agent", "support"}:
+        try:
+            response = run_workflow_agent(
+                question,
+                vector_store=vector_store,
+                history=[message.model_dump() for message in query.history],
+            )
+        except Exception as exc:
+            logger.exception("Workflow agent failed during request: %s", exc)
+            return {
+                "question": question,
+                "chunks": [],
+                "answer": "❌ Workflow agent is temporarily unavailable. Please try again shortly.",
+                "source": query.source,
+                "tool_calls": [],
+                "timings": {
+                    "request_total_seconds": round(time.perf_counter() - request_start, 4),
+                },
+            }
     elif normalized_source in {"keka", "keka_rag"}:
         keka_error = ensure_keka_ready()
         if keka_error:
@@ -220,6 +271,9 @@ def ask(query: Query):
                 "chunks": [],
                 "answer": f"❌ Keka RAG not available right now. Initialization failed with: {keka_error}",
                 "source": query.source,
+                "timings": {
+                    "request_total_seconds": round(time.perf_counter() - request_start, 4),
+                },
             }
 
         response = handle_keka_question(question, keka_retriever, keka_rag_chain, agent=keka_agent)
@@ -230,6 +284,9 @@ def ask(query: Query):
                 "chunks": [],
                 "answer": "❌ Hexnode knowledge base is not initialized yet. Start the vector-store setup or enable the startup initializer before asking default-source questions.",
                 "source": query.source,
+                "timings": {
+                    "request_total_seconds": round(time.perf_counter() - request_start, 4),
+                },
             }
 
         response = handle_hexnode_question(
@@ -240,4 +297,7 @@ def ask(query: Query):
         )
 
     response["source"] = query.source
+    timings = dict(response.get("timings", {}))
+    timings["request_total_seconds"] = round(time.perf_counter() - request_start, 4)
+    response["timings"] = timings
     return response

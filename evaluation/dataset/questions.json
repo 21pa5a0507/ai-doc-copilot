@@ -226,8 +226,8 @@
     "expected_documents": ["Add Required apps to Windows devices via policy", "asset policy.pdf"],
     "question": "Compare Hexnode Windows app deployment guidance with the Keka asset policy.",
     "tags": ["apps", "asset-policy"],
-    "expected_keywords": ["windows", "app", "deployment", "asset policy"],
-    "required_keywords": ["deployment", "asset policy"]
+    "expected_keywords": ["windows", "app", "required apps", "installation", "asset policy"],
+    "required_keywords": ["app", "asset policy"]
   },
   {
     "id": "COMB-004",
@@ -259,5 +259,55 @@
     "out_of_scope": true,
     "expected_keywords": [],
     "required_keywords": []
+  },
+  {
+    "id": "WORKFLOW-001",
+    "source": "workflow",
+    "expected_sources": ["workflow"],
+    "expected_documents": [],
+    "question": "While applying the custom configuration policy, it is not reflecting on the device end.",
+    "tags": ["workflow", "troubleshooting", "custom-configuration"],
+    "expected_keywords": ["policy", "device", "configuration", "sync", "target"],
+    "required_keywords": ["policy", "device"]
+  },
+  {
+    "id": "WORKFLOW-002",
+    "source": "workflow",
+    "expected_sources": ["workflow"],
+    "expected_documents": [],
+    "question": "The VPN policy is not getting associated with one Windows device. What should I check?",
+    "tags": ["workflow", "troubleshooting", "vpn"],
+    "expected_keywords": ["vpn", "policy", "device", "target", "sync"],
+    "required_keywords": ["vpn", "device"]
+  },
+  {
+    "id": "WORKFLOW-003",
+    "source": "workflow",
+    "expected_sources": ["workflow"],
+    "expected_documents": [],
+    "question": "A required app is assigned through policy, but it is not installing silently on the Windows device.",
+    "tags": ["workflow", "troubleshooting", "required-apps"],
+    "expected_keywords": ["required", "app", "install", "policy", "device"],
+    "required_keywords": ["app", "device"]
+  },
+  {
+    "id": "WORKFLOW-004",
+    "source": "workflow",
+    "expected_sources": ["workflow"],
+    "expected_documents": [],
+    "question": "Web content filtering is applied, but the blocked website is still opening in the browser.",
+    "tags": ["workflow", "troubleshooting", "web-content-filtering"],
+    "expected_keywords": ["web", "content", "filtering", "browser", "policy"],
+    "required_keywords": ["browser", "policy"]
+  },
+  {
+    "id": "WORKFLOW-005",
+    "source": "workflow",
+    "expected_sources": ["workflow"],
+    "expected_documents": [],
+    "question": "Windows kiosk mode is configured, but the assigned kiosk app is not launching on the device.",
+    "tags": ["workflow", "troubleshooting", "windows-kiosk"],
+    "expected_keywords": ["windows", "kiosk", "app", "device", "policy"],
+    "required_keywords": ["kiosk", "device"]
   }
 ]

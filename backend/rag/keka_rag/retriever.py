@@ -1,4 +1,5 @@
 from typing import List
+import time
 
 from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
@@ -37,15 +38,32 @@ class KekaRetriever:
                 "lambda_mult": 0.7,
             },
         )
+        self.last_timings = {}
 
     def invoke(self, query: str):
+        total_start = time.perf_counter()
+
+        bm25_start = time.perf_counter()
         bm25_docs = self.bm25.invoke(query)
+        bm25_seconds = round(time.perf_counter() - bm25_start, 4)
+
+        vector_start = time.perf_counter()
         vector_docs = self.vector_retriever.invoke(query)
+        vector_seconds = round(time.perf_counter() - vector_start, 4)
 
         combined_docs = bm25_docs + vector_docs
         retrieved_docs = deduplicate(combined_docs)
 
+        rerank_start = time.perf_counter()
         final_docs = self.reranker.rerank(query, retrieved_docs, top_k=5)
+        rerank_seconds = round(time.perf_counter() - rerank_start, 4)
+
+        self.last_timings = {
+            "bm25_seconds": bm25_seconds,
+            "vector_search_seconds": vector_seconds,
+            "rerank_seconds": rerank_seconds,
+            "retrieval_total_seconds": round(time.perf_counter() - total_start, 4),
+        }
 
         return final_docs
 

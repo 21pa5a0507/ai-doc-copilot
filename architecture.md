@@ -1,6 +1,6 @@
 # HexPilot AI Architecture
 
-HexPilot AI is a multi-source RAG assistant for answering questions from Hexnode documentation and Keka policy documents. A React chat UI sends questions to a FastAPI backend. The backend routes each question to the right knowledge source, retrieves relevant evidence, reranks it, and uses Gemini to generate a grounded answer.
+HexPilot AI is a multi-source RAG and workflow assistant for answering questions from Hexnode documentation, Keka policy documents, and support workflows. A React chat UI sends questions to a FastAPI backend. The backend routes each question to the right source, retrieves relevant evidence when needed, and uses Gemini to generate grounded answers or perform support actions through tools.
 
 The project is structured like a small deployable GenAI service. The frontend, API layer, retrieval pipelines, answer generation, evaluation, and deployment setup are kept separate so each part can be improved without rewriting the whole system.
 
@@ -14,7 +14,7 @@ User
   v
 React + Vite Frontend
   - Chat interface
-  - Source selector: Hexnode Docs / Keka Policies / Both Sources
+  - Source selector: Hexnode Docs / Keka Policies / Both Sources / Support Workflow
   - Session-only chat history
   - Sources panel
   |
@@ -22,6 +22,7 @@ React + Vite Frontend
 FastAPI Backend
   - POST /ask
   - GET /health
+  - POST /workflow/process-delete-approvals
   - Source-based routing
   |
   +-------------------------------+
@@ -41,6 +42,7 @@ Hexnode Knowledge Pipeline      Keka Knowledge Pipeline
 Answer Generation / Combined Graph
   - Direct RAG for single-source questions
   - LangGraph combined flow for both sources
+  - LangGraph support workflow for Jira-backed support actions
   - Optional agent/graph paths behind environment flags
                   |
                   v
@@ -50,6 +52,20 @@ Gemini LLM
                   |
                   v
 Answer + Supporting Sources
+```
+
+Support Workflow also integrates with Jira Cloud:
+
+```text
+Support Workflow Agent
+  -> troubleshoot with Hexnode docs
+  -> create Jira ticket
+  -> close Jira ticket
+  -> request delete approval with Jira labels
+
+Cloud Scheduler
+  -> POST /workflow/process-delete-approvals every 15 minutes
+  -> delete only tickets with delete-requested + delete-approved
 ```
 
 ---
@@ -81,21 +97,24 @@ The frontend does not know how retrieval works. It only sends:
 ```json
 {
   "question": "user question",
-  "source": "default | keka | both"
+  "source": "default | keka | both | workflow"
 }
 ```
 
-This keeps the UI simple and keeps retrieval logic inside the backend.
+For Support Workflow, the frontend also sends the last few chat messages so follow-up requests can use the support context. Other sources do not need chat history.
+
+This keeps the UI simple and keeps retrieval and workflow logic inside the backend.
 
 ---
 
 ## 3. Backend API Design
 
-The backend is a FastAPI service with two main endpoints.
+The backend is a FastAPI service with chat, health, and workflow approval endpoints.
 
 ```text
 GET  /health
 POST /ask
+POST /workflow/process-delete-approvals
 ```
 
 ### `/health`
@@ -119,9 +138,14 @@ Source routing is handled in `backend/main.py`.
 source = default  -> Hexnode docs pipeline
 source = keka     -> Keka policy pipeline
 source = both     -> Combined Hexnode + Keka graph
+source = workflow -> Support workflow agent
 ```
 
 The response contains the original question, generated answer, retrieved chunks, selected source, and tool metadata when available.
+
+### `/workflow/process-delete-approvals`
+
+This endpoint is designed for Cloud Scheduler. It checks Jira tickets marked with `delete-requested` and deletes only the tickets that also have `delete-approved`. A scheduler token header can be used to protect the endpoint in production.
 
 ---
 
@@ -226,6 +250,22 @@ Question
 
 This is useful when a question needs both product documentation and internal policy context.
 
+### Support Workflow flow
+
+When the user selects `Support Workflow`, the backend runs a LangGraph tool-calling agent. This path is intentionally selected by the UI instead of a router LLM to reduce latency and Gemini API usage.
+
+The workflow agent can use:
+
+```text
+troubleshoot_issue_tool
+create_jira_ticket_tool
+manage_jira_ticket_tool
+```
+
+The troubleshooting tool reuses the already-initialized Hexnode vector store. Jira actions are kept in a separate Jira client module so the tool layer stays small and readable.
+
+Delete requests are not executed immediately. The workflow adds a `delete-requested` label and a Jira comment. A team member approves deletion in Jira by adding `delete-approved`. The scheduled approval processor deletes only tickets with both labels.
+
 ---
 
 ## 7. LLM Integration
@@ -254,13 +294,15 @@ Do not invent policy details, links, or setup steps.
 
 This keeps the assistant safer for product documentation and HR policy use cases.
 
+The Support Workflow agent also uses Gemini for tool selection. It does not use a separate router LLM; the user-selected source determines when the workflow agent is used.
+
 ---
 
 ## 8. Core Request Flow
 
 ```text
 1. User asks a question in the React UI.
-2. User selects a source: Hexnode, Keka, or Both.
+2. User selects a source: Hexnode, Keka, Both, or Support Workflow.
 3. Frontend sends POST /ask to FastAPI.
 4. Backend routes the request based on source.
 5. The selected retriever fetches candidate chunks.
@@ -272,6 +314,8 @@ This keeps the assistant safer for product documentation and HR policy use cases
 ```
 
 For `both` source mode, the retrieval step runs against both Hexnode and Keka, then the combined LangGraph flow synthesizes one response.
+
+For `workflow` source mode, the agent may call a troubleshooting tool or Jira tool, then returns a concise support response with tool metadata.
 
 ---
 
@@ -294,8 +338,14 @@ The evaluation script calls the running backend at `http://localhost:8000/ask` a
 - answer keyword coverage
 - fallback behavior
 - simple hallucination-risk signals
+- workflow response checks
+- average backend timing values
 
 This is a practical evaluation setup. It does not prove perfect factual correctness, but it helps catch wrong routing, weak retrieval, missing evidence, and unsupported answers.
+
+Workflow cases use the same response-based evaluation style. They check that the workflow source responds with the expected support keywords without adding separate unit-style mocks to the evaluation script.
+
+Backend responses include a small `timings` object for practical latency checks, such as embedding time, retrieval time, reranking time, tool execution time, and total request time when those values apply.
 
 ---
 
@@ -323,6 +373,17 @@ GitHub Actions is configured for:
 
 The React frontend is a separate Vite app. It can be deployed independently and configured with `VITE_API_URL` to call the backend.
 
+For the delete approval workflow, Cloud Scheduler calls the backend every 15 minutes:
+
+```text
+Cloud Scheduler
+  -> POST /workflow/process-delete-approvals
+  -> backend checks Jira labels
+  -> approved tickets are deleted
+```
+
+This avoids running an in-process scheduler inside Cloud Run and prevents duplicate background jobs when the backend scales.
+
 ---
 
 ## 11. Why This Architecture Is Practical
@@ -335,6 +396,8 @@ This architecture is useful because it keeps the system understandable and debug
 - Hybrid retrieval improves recall across semantic and keyword-heavy questions.
 - ONNX reranking improves the final evidence sent to Gemini.
 - Combined-source mode supports questions that need both documentation and policy context.
+- Support Workflow handles Jira-backed support actions without mixing ticket operations into the RAG pipelines.
+- Cloud Scheduler handles recurring delete approval checks outside the API process.
 - Supporting chunks are returned to the UI, so answers can be inspected.
 - Evaluation checks the parts of a RAG system that usually fail first: routing, retrieval, evidence quality, and fallback behavior.
 
