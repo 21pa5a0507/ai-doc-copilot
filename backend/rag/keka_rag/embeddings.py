@@ -23,11 +23,11 @@ class HFEmbeddings(Embeddings):
         )[0].tolist()
 
 
-_embedding_instance = None
+embedding_instance = None
 
 
 def get_embeddings():
-    global _embedding_instance
-    if _embedding_instance is None:
-        _embedding_instance = HFEmbeddings()
-    return _embedding_instance
+    global embedding_instance
+    if embedding_instance is None:
+        embedding_instance = HFEmbeddings()
+    return embedding_instance

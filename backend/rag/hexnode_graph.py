@@ -6,18 +6,14 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
-
-try:
-    from langgraph.graph import END, START, StateGraph
-except ImportError:  # pragma: no cover - handled at runtime if langgraph is missing
-    END = START = StateGraph = None
+from langgraph.graph import END, START, StateGraph
 
 from rag.hexnode_tools import (
     get_hexnode_setup_steps,
     list_hexnode_topics,
     search_hexnode_docs,
 )
-from rag.content import content_to_text
+from rag.utils import content_to_text
 from rag.gemini_models import PRIMARY_MODEL, get_google_api_key
 
 load_dotenv()
@@ -66,9 +62,6 @@ def get_llm():
 
 
 def build_hexnode_graph_runtime(vector_store) -> HexnodeGraphRuntime:
-    if StateGraph is None:
-        raise ImportError("langgraph is not installed")
-
     def run_search_tool(args: Dict[str, Any]) -> Dict[str, Any]:
         return search_hexnode_docs(args["question"], vector_store)
 

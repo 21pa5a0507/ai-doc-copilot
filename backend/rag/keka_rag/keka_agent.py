@@ -6,7 +6,7 @@ from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 
-from rag.content import content_to_text
+from rag.utils import content_to_text
 from rag.keka_rag.rag_chain import get_llm
 from rag.keka_rag.tools import (
     get_keka_process_steps,
@@ -32,14 +32,14 @@ Rules:
 """.strip()
 
 
-_REQUEST_STATE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+REQUEST_STATE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     "keka_agent_request_state",
     default=None,
 )
 
 
 def store_tool_result(result: Dict[str, Any], tool_name: str, args: Dict[str, Any]) -> None:
-    request_state = _REQUEST_STATE.get()
+    request_state = REQUEST_STATE.get()
     if request_state is None:
         return
 
@@ -63,12 +63,12 @@ def request_state_scope(question: str):
         },
         "tool_trace": [],
     }
-    token = _REQUEST_STATE.set(request_state)
+    token = REQUEST_STATE.set(request_state)
 
     try:
         yield request_state
     finally:
-        _REQUEST_STATE.reset(token)
+        REQUEST_STATE.reset(token)
 
 
 def build_keka_agent(retriever):

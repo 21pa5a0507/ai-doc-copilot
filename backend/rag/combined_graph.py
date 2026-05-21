@@ -3,13 +3,9 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 from langchain_core.prompts import ChatPromptTemplate
 import logging
+from langgraph.graph import END, START, StateGraph
 
-try:
-    from langgraph.graph import END, START, StateGraph
-except ImportError:  # pragma: no cover - handled by caller if langgraph is unavailable
-    END = START = StateGraph = None
-
-from rag.content import content_to_text
+from rag.utils import content_to_text
 from rag.gemini_models import generate_text_with_fallback, get_genai_client
 from rag.hexnode_tools import search_hexnode_docs
 from rag.keka_rag.rag_chain import get_llm
@@ -69,9 +65,6 @@ def build_combined_graph_runtime(
     vector_store,
     keka_retriever,
 ) -> CombinedGraphRuntime:
-    if StateGraph is None:
-        raise ImportError("langgraph is not installed")
-
     graph = StateGraph(CombinedGraphState)
 
     def retrieve_hexnode(state: CombinedGraphState):

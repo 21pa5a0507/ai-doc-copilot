@@ -25,24 +25,30 @@ FastAPI Backend
   - POST /workflow/process-delete-approvals
   - Source-based routing
   |
-  +-------------------------------+
-  |                               |
-  v                               v
-Hexnode Knowledge Pipeline      Keka Knowledge Pipeline
-  - Hexnode help docs             - Local Keka policy PDFs
-  - cleaned chunks                - PDF chunks
-  - FAISS vector index            - LangChain FAISS index
-  - BM25 retrieval                - BM25 retrieval
-  - hybrid search                 - MMR vector retrieval
-  - ONNX reranking                - ONNX reranking
-  |                               |
-  +---------------+---------------+
-                  |
-                  v
-Answer Generation / Combined Graph
+  +----------------------------------+----------------------------------+----------------------------------+----------------------------------+
+  |                                  |                                  |                                  |                                  |
+  v                                  v                                  v                                  v
+Hexnode Knowledge Pipeline         Keka Knowledge Pipeline           Combined Graph                   Workflow Agent
+  - Hexnode help docs                - Local Keka policy PDFs           - Query both sources             - Jira integration
+
+  - cleaned chunks                   - PDF chunks                       - Parallel retrieval            -
+  Troubleshooting tool
+
+  - FAISS vector index               - LangChain FAISS index            - Tag chunks by source         - Create/manage tickets
+
+  - BM25 retrieval                   - BM25 retrieval                   - Synthesize answer            - Delete approval flow
+
+  - hybrid search                    - MMR vector retrieval
+  
+  - ONNX reranking                   - ONNX reranking
+  |                                  |                                  |                                  |
+  +----------------------------------+----------------------------------+----------------------------------+----------------------------------+
+                                                |
+                                                v
+Answer Generation
   - Direct RAG for single-source questions
   - LangGraph combined flow for both sources
-  - LangGraph support workflow for Jira-backed support actions
+  - LangGraph tool-calling agent for support workflows
   - Optional agent/graph paths behind environment flags
                   |
                   v

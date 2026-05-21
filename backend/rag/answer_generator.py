@@ -1,12 +1,6 @@
-import os
-import sys
 import logging
 
 from dotenv import load_dotenv
-
-if __package__ in {None, ""}:
-    # Allow this module to be run directly via `python backend/rag/answer_generator.py`.
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rag.gemini_models import PRIMARY_MODEL, generate_text_with_fallback, get_genai_client
 
@@ -40,6 +34,9 @@ def get_greeting_response(question: str, source: str):
         "keka": "Keka policies",
         "keka_rag": "Keka policies",
         "both": "Hexnode docs and Keka policies",
+        "workflow": "support workflows",
+        "workflow_agent": "support workflows",
+        "support": "support workflows",
     }
     topic = source_labels.get(source.lower(), "Hexnode")
 

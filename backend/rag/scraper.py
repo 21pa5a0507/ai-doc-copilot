@@ -17,9 +17,9 @@ from config.paths import (
     HEXNODE_RAW_CACHE,
     LEGACY_HEXNODE_DOCS_JSON,
 )
-from rag.cleaner import clean_text
 from rag.chunker import chunk_text
 from rag.embeddings import get_embedding
+from rag.utils import clean_text
 
 
 logger = logging.getLogger(__name__)
@@ -175,7 +175,6 @@ async def crawl_with_depth(start_urls):
 def is_valid_chunk(text):
     text_lower = text.lower().strip()
 
-    # Exact junk phrases.
     exact_blacklist = [
         "next",
         "previous",
@@ -187,7 +186,6 @@ def is_valid_chunk(text):
     if text_lower in exact_blacklist:
         return False
 
-    # Very short chunks usually add noise.
     if len(text_lower) < 30:
         return False
 
@@ -211,7 +209,6 @@ def chunking_docs(docs):
             if not is_valid_chunk(chunk):
                 continue
 
-            # Use URL plus content so repeated text on different pages stays distinct.
             key = doc["url"] + "||" + chunk
             if key in seen:
                 continue

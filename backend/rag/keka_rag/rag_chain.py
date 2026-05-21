@@ -4,7 +4,7 @@ from functools import lru_cache
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from rag.content import content_to_text
+from rag.utils import content_to_text
 from rag.gemini_models import (
     PRIMARY_MODEL,
     generate_text_with_fallback,
