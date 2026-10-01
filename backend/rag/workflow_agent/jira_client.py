@@ -14,6 +14,29 @@ DELETE_REQUEST_COMMENT = (
 )
 
 
+class JiraClientError(RuntimeError):
+    """Raised when Jira rejects or fails an API request."""
+
+
+def raise_for_jira_error(response: requests.Response, action: str) -> None:
+    if response.ok:
+        return
+
+    detail = response.text.strip()
+    if len(detail) > 800:
+        detail = f"{detail[:800]}..."
+
+    raise JiraClientError(
+        f"Jira {action} failed with HTTP {response.status_code}: {detail or response.reason}"
+    )
+
+
+def jira_request(method: str, url: str, **kwargs) -> requests.Response:
+    with requests.Session() as session:
+        session.trust_env = False
+        return session.request(method, url, **kwargs)
+
+
 def get_jira_credentials() -> dict:
     return {
         "base_url": os.getenv("JIRA_BASE_URL"),
@@ -63,7 +86,8 @@ def create_jira_ticket(summary: str, description: str) -> dict:
         }
     }
 
-    response = requests.post(
+    response = jira_request(
+        "POST",
         url,
         json=payload,
         auth=(creds["email"], creds["api_token"]),
@@ -73,7 +97,7 @@ def create_jira_ticket(summary: str, description: str) -> dict:
         },
         timeout=20,
     )
-    response.raise_for_status()
+    raise_for_jira_error(response, "ticket creation")
     data = response.json()
 
     return {
@@ -89,7 +113,8 @@ def get_jira_transitions(issue_key: str) -> list:
 
     url = f"{creds['base_url'].rstrip('/')}/rest/api/3/issue/{issue_key}/transitions"
 
-    response = requests.get(
+    response = jira_request(
+        "GET",
         url,
         auth=(creds["email"], creds["api_token"]),
         headers={
@@ -97,7 +122,7 @@ def get_jira_transitions(issue_key: str) -> list:
         },
         timeout=20,
     )
-    response.raise_for_status()
+    raise_for_jira_error(response, "transition lookup")
     data = response.json()
 
     return data.get("transitions", [])
@@ -121,7 +146,8 @@ def close_jira_ticket(issue_key: str) -> dict:
 
     url = f"{creds['base_url'].rstrip('/')}/rest/api/3/issue/{issue_key}/transitions"
 
-    response = requests.post(
+    response = jira_request(
+        "POST",
         url,
         json={
             "transition": {
@@ -136,7 +162,7 @@ def close_jira_ticket(issue_key: str) -> dict:
         timeout=20,
     )
 
-    response.raise_for_status()
+    raise_for_jira_error(response, "ticket close")
 
     return {
         "issue_key": issue_key,
@@ -151,7 +177,8 @@ def add_jira_label(issue_key: str, label: str) -> dict:
 
     url = f"{creds['base_url'].rstrip('/')}/rest/api/3/issue/{issue_key}"
 
-    response = requests.put(
+    response = jira_request(
+        "PUT",
         url,
         json={
             "update": {
@@ -168,7 +195,7 @@ def add_jira_label(issue_key: str, label: str) -> dict:
         timeout=20,
     )
 
-    response.raise_for_status()
+    raise_for_jira_error(response, "label update")
 
     return {
         "issue_key": issue_key,
@@ -183,7 +210,8 @@ def add_jira_comment(issue_key: str, comment: str) -> dict:
 
     url = f"{creds['base_url'].rstrip('/')}/rest/api/3/issue/{issue_key}/comment"
 
-    response = requests.post(
+    response = jira_request(
+        "POST",
         url,
         json={
             "body": {
@@ -210,7 +238,7 @@ def add_jira_comment(issue_key: str, comment: str) -> dict:
         timeout=20,
     )
 
-    response.raise_for_status()
+    raise_for_jira_error(response, "comment creation")
     data = response.json()
 
     return {
@@ -239,7 +267,8 @@ def delete_jira_ticket(issue_key: str) -> dict:
 
     url = f"{creds['base_url'].rstrip('/')}/rest/api/3/issue/{issue_key}"
 
-    response = requests.delete(
+    response = jira_request(
+        "DELETE",
         url,
         auth=(creds["email"], creds["api_token"]),
         headers={
@@ -248,7 +277,7 @@ def delete_jira_ticket(issue_key: str) -> dict:
         timeout=20,
     )
 
-    response.raise_for_status()
+    raise_for_jira_error(response, "ticket deletion")
 
     return {
         "issue_key": issue_key,
@@ -262,7 +291,8 @@ def get_jira_issue(issue_key: str) -> dict:
 
     url = f"{creds['base_url'].rstrip('/')}/rest/api/3/issue/{issue_key}"
 
-    response = requests.get(
+    response = jira_request(
+        "GET",
         url,
         auth=(creds["email"], creds["api_token"]),
         headers={
@@ -271,7 +301,7 @@ def get_jira_issue(issue_key: str) -> dict:
         timeout=20,
     )
 
-    response.raise_for_status()
+    raise_for_jira_error(response, "issue lookup")
 
     return response.json()
 
@@ -305,7 +335,8 @@ def find_delete_requested_tickets() -> list:
         f'AND labels = "{DELETE_REQUESTED_LABEL}"'
     )
 
-    response = requests.get(
+    response = jira_request(
+        "GET",
         url,
         params={
             "jql": jql,
@@ -319,7 +350,7 @@ def find_delete_requested_tickets() -> list:
         timeout=20,
     )
 
-    response.raise_for_status()
+    raise_for_jira_error(response, "delete approval search")
     data = response.json()
 
     return data.get("issues", [])

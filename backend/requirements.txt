@@ -18,3 +18,9 @@ tokenizers
 transformers
 langchain-text-splitters
 langgraph
+qdrant-client
+mcp
+fastmcp
+sqlalchemy
+asyncpg
+psycopg2-binary

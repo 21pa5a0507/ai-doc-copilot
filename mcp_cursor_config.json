@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "hexdrive-device-inventory": {
+      "command": "python",
+      "args": [
+        "d:/GEN AI/ai-doc-copilot/backend/postgres_mcp_server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "d:/GEN AI/ai-doc-copilot/backend"
+      }
+    }
+  }
+}

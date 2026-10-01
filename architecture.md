@@ -1,410 +1,240 @@
 # HexPilot AI Architecture
 
-HexPilot AI is a multi-source RAG and workflow assistant for answering questions from Hexnode documentation, Keka policy documents, and support workflows. A React chat UI sends questions to a FastAPI backend. The backend routes each question to the right source, retrieves relevant evidence when needed, and uses Gemini to generate grounded answers or perform support actions through tools.
+HexPilot AI is a multi-source GenAI assistant for Hexnode documentation, Keka HR policies, combined source questions, and support workflow automation with Jira.
 
-The project is structured like a small deployable GenAI service. The frontend, API layer, retrieval pipelines, answer generation, evaluation, and deployment setup are kept separate so each part can be improved without rewriting the whole system.
-
----
-
-## 1. High-Level Architecture
+## Complete Workflow Diagram
 
 ```text
 User
   |
   v
-React + Vite Frontend
-  - Chat interface
-  - Source selector: Hexnode Docs / Keka Policies / Both Sources / Support Workflow
-  - Session-only chat history
-  - Sources panel
+React + Vite Chat UI
+  - Source selector: Hexnode / Keka / Both / Workflow
+  - Chat history for workflow follow-ups
+  - Source panel for retrieved evidence
+  |
+  v
+Frontend API Client
+  - ragApi.js
+  - POST /ask { question, source, history }
   |
   v
 FastAPI Backend
   - POST /ask
   - GET /health
   - POST /workflow/process-delete-approvals
-  - Source-based routing
+  - Startup initializes Hexnode, Keka, and combined graph runtimes
   |
-  +----------------------------------+----------------------------------+----------------------------------+----------------------------------+
-  |                                  |                                  |                                  |                                  |
-  v                                  v                                  v                                  v
-Hexnode Knowledge Pipeline         Keka Knowledge Pipeline           Combined Graph                   Workflow Agent
-  - Hexnode help docs                - Local Keka policy PDFs           - Query both sources             - Jira integration
-
-  - cleaned chunks                   - PDF chunks                       - Parallel retrieval            -
-  Troubleshooting tool
-
-  - FAISS vector index               - LangChain FAISS index            - Tag chunks by source         - Create/manage tickets
-
-  - BM25 retrieval                   - BM25 retrieval                   - Synthesize answer            - Delete approval flow
-
-  - hybrid search                    - MMR vector retrieval
-  
-  - ONNX reranking                   - ONNX reranking
-  |                                  |                                  |                                  |
-  +----------------------------------+----------------------------------+----------------------------------+----------------------------------+
-                                                |
-                                                v
-Answer Generation
-  - Direct RAG for single-source questions
-  - LangGraph combined flow for both sources
-  - LangGraph tool-calling agent for support workflows
-  - Optional agent/graph paths behind environment flags
-                  |
-                  v
-Gemini LLM
-  - Grounded answer generation
-  - Model fallback stack
-                  |
-                  v
-Answer + Supporting Sources
+  v
+Assistant Router
+  - source=default  -> Hexnode RAG
+  - source=keka     -> Keka RAG
+  - source=both     -> Combined Graph
+  - source=workflow -> Support Workflow Agent
+  |
+  +---------------------------+---------------------------+---------------------------+---------------------------+
+  |                           |                           |                           |
+  v                           v                           v                           v
+Hexnode RAG                Keka RAG                    Combined Graph              Support Workflow Agent
+Product docs               HR policy PDFs              LangGraph flow              LangGraph ReAct tool agent
+hexnode_tools.py           keka_rag/tools.py           combined_graph.py           workflow_agent/main.py
+  |                           |                           |                           |
+  |                           |                           |                           +--> Troubleshoot issue
+  |                           |                           |                           |    using Hexnode docs
+  |                           |                           |                           |
+  |                           |                           |                           +--> Create Jira ticket
+  |                           |                           |                           |
+  |                           |                           |                           +--> Close Jira ticket
+  |                           |                           |                           |
+  |                           |                           |                           +--> Request delete approval
+  |                           |                           |                                and scheduled deletion
+  |                           |                           |
+  v                           v                           v
+Hybrid Retrieval            Hybrid Retrieval            Parallel Retrieval
+FAISS + BM25                FAISS MMR + BM25            Hexnode + Keka
+vector_store.py             keka_rag/retriever.py       source-labelled evidence
+  |                           |                           |
+  v                           v                           v
+Deduplication               Deduplication               Gemini synthesis
+  |                           |                           |
+  v                           v                           |
+ONNX Reranker               ONNX Reranker                |
+onnx_reranker.py            onnx_reranker.py             |
+  |                           |                           |
+  +-------------+-------------+---------------------------+
+                |
+                v
+Prompt Construction + Context Injection
+  - Hexnode answer_generator.py
+  - Keka rag_chain.py
+  - Combined graph synthesis prompt
+  - Workflow agent final response after tool execution
+                |
+                v
+Gemini LLM Layer
+  - Primary model: gemini-2.5-flash-lite
+  - Fallback model stack for retryable failures
+  - Grounded answer generation from retrieved/tool context
+                |
+                v
+API Response
+  - question
+  - answer
+  - chunks
+  - source
+  - tool_calls
+  - timings
+                |
+                v
+React Rendering
+  - Assistant message
+  - Markdown-style formatting
+  - Source cards with title, URL/source, excerpt, relevance
 ```
 
-Support Workflow also integrates with Jira Cloud:
+## Knowledge Processing Flows
 
 ```text
-Support Workflow Agent
-  -> troubleshoot with Hexnode docs
-  -> create Jira ticket
-  -> close Jira ticket
-  -> request delete approval with Jira labels
-
-Cloud Scheduler
-  -> POST /workflow/process-delete-approvals every 15 minutes
-  -> delete only tickets with delete-requested + delete-approved
+Hexnode Knowledge Flow
+Hexnode sitemap/cache
+  |
+  v
+scraper.py
+  - Crawl Windows-focused Hexnode docs when cache is missing
+  - Extract main/article content
+  - Split content by headings
+  |
+  v
+chunker.py
+  - Clean text
+  - Chunk with overlap
+  - Filter short/noisy chunks
+  |
+  v
+ONNX Embeddings
+  - backend/models/hexnode_embedding
+  - all-MiniLM-L6-v2 wrapper
+  |
+  v
+FAISS IndexFlatIP + Metadata Cache + BM25 Tokens
+  - storage/hexnode/index/vector_store_emb.index
+  - storage/hexnode/index/vector_store_meta.pkl
 ```
-
----
-
-## 2. Frontend Structure
-
-The frontend is a React + Vite application focused on asking questions and reviewing retrieved sources.
 
 ```text
-frontend/ragline-ui
-  ├── src
-  │   ├── App.jsx
-  │   ├── api/ragApi.js
-  │   ├── components/ChatBox.jsx
-  │   ├── components/SourcesPanel.jsx
-  │   └── components/Message.jsx
-  └── package.json
+Keka Knowledge Flow
+keka_data/*.pdf
+  |
+  v
+PyPDFLoader
+  - Load policy PDFs
+  - Preserve file_name metadata
+  |
+  v
+RecursiveCharacterTextSplitter
+  - chunk_size=800
+  - chunk_overlap=100
+  |
+  v
+ONNX Embeddings
+  - LangChain Embeddings adapter
+  - backend/models/hexnode_embedding
+  |
+  v
+LangChain FAISS Index + Cached Chunks
+  - storage/keka/index/faiss_emb
+  - storage/keka/cache/docs_chunk.pkl
 ```
 
-### Main responsibilities
-
-- `App.jsx` owns theme state, sidebar state, session chat history, active messages, and retrieved sources.
-- `ChatBox.jsx` handles chat input, source selection, suggested prompts, loading state, and typing animation.
-- `SourcesPanel.jsx` displays the retrieved evidence chunks returned by the backend.
-- `ragApi.js` sends `POST /ask` requests to the backend using `VITE_API_URL`, with `http://localhost:8000` as the default.
-
-The frontend does not know how retrieval works. It only sends:
-
-```json
-{
-  "question": "user question",
-  "source": "default | keka | both | workflow"
-}
-```
-
-For Support Workflow, the frontend also sends the last few chat messages so follow-up requests can use the support context. Other sources do not need chat history.
-
-This keeps the UI simple and keeps retrieval and workflow logic inside the backend.
-
----
-
-## 3. Backend API Design
-
-The backend is a FastAPI service with chat, health, and workflow approval endpoints.
+## Evaluation And Deployment
 
 ```text
-GET  /health
-POST /ask
-POST /workflow/process-delete-approvals
+Evaluation
+evaluation/dataset/questions.json
+  |
+  v
+evaluation/scripts/run_evaluation.py
+  - Calls live FastAPI /ask endpoint
+  - Checks source accuracy
+  - Checks expected document matches
+  - Checks retrieval relevance
+  - Checks answer keyword coverage
+  - Flags fallback and hallucination risk
+  - Saves summary metrics
 ```
-
-### `/health`
-
-Returns readiness status for the Hexnode, Keka, and combined graph pipelines.
-
-### `/ask`
-
-Accepts a user question and a source selector.
-
-```json
-{
-  "question": "How to enroll a Windows device?",
-  "source": "default"
-}
-```
-
-Source routing is handled in `backend/main.py`.
 
 ```text
-source = default  -> Hexnode docs pipeline
-source = keka     -> Keka policy pipeline
-source = both     -> Combined Hexnode + Keka graph
-source = workflow -> Support workflow agent
+Deployment
+GitHub Actions
+  |
+  +--> Frontend lint + production build
+  |
+  +--> Backend Python syntax validation
+  |
+  +--> Docker image build
+  |
+  +--> Docker Hub publish on main branch
+  |
+  v
+Google Cloud Run
+  - Deploy backend container
+  - Verify /health after deployment
 ```
 
-The response contains the original question, generated answer, retrieved chunks, selected source, and tool metadata when available.
+## Layer-by-Layer Explanation
 
-### `/workflow/process-delete-approvals`
+**Client Layer**  
+React/Vite provides the chat UI, source selector, local chat sessions, workflow history handoff, and source evidence panel.
 
-This endpoint is designed for Cloud Scheduler. It checks Jira tickets marked with `delete-requested` and deletes only the tickets that also have `delete-approved`. A scheduler token header can be used to protect the endpoint in production.
+**API Layer**  
+FastAPI exposes `/ask`, `/health`, and the workflow scheduler endpoint. It initializes Hexnode, Keka, and combined graph runtime objects at startup.
 
----
+**Assistant Routing Layer**  
+`main.py` routes requests based on `source`. The implemented routes are Hexnode, Keka, Both, and Workflow.
 
-## 4. Hexnode RAG Pipeline
+**Hexnode RAG**  
+Uses keyword-based routing for topics, setup steps, and general search. Retrieval uses FAISS + BM25, then ONNX reranking.
 
-The Hexnode pipeline uses cached/indexed Hexnode help documentation when available. If no index is found, the backend can crawl Hexnode Windows documentation, clean the content, chunk it, embed it, and save a FAISS index.
+**Keka RAG**  
+Uses keyword-based routing for policy lists, process steps, and policy search. Retrieval uses FAISS MMR + BM25, then ONNX reranking.
 
-```text
-Hexnode cached docs / sitemap crawl
-  -> clean documentation content
-  -> chunk text
-  -> generate ONNX embeddings
-  -> store chunks in FAISS
-  -> build BM25 index
-  -> retrieve using vector + keyword search
-  -> normalize and combine results
-  -> deduplicate chunks
-  -> rerank with ONNX reranker
-  -> generate answer with Gemini
-```
+**Combined Graph**  
+A LangGraph flow retrieves from Hexnode and Keka in parallel, labels evidence by source, and asks Gemini to synthesize one answer.
 
-### Retrieval design
+**Support Workflow Agent**  
+A LangGraph ReAct agent lets Gemini select tools for troubleshooting, Jira creation, Jira closure, and delete approval handling.
 
-The Hexnode retriever combines:
+**Retrieval And Ranking**  
+Both knowledge bases generate lexical and semantic candidates, deduplicate them, and use the local ONNX reranker for final context selection.
 
-1. **FAISS vector search** for semantic similarity.
-2. **BM25 keyword search** for exact product terms, feature names, and UI wording.
+**LLM Layer**  
+Gemini receives prompts with retrieved context or tool outputs. The code uses a primary Gemini model plus fallback models for retryable failures.
 
-The two result sets are normalized, combined, deduplicated, and reranked before answer generation. This is useful for product documentation because users may ask semantically, but the best evidence often depends on exact terms from the docs.
+**Response Layer**  
+The backend returns answer text, evidence chunks, source, tool calls, and timings. The frontend renders the answer and source evidence.
 
----
+**Evaluation Layer**  
+The evaluation script tests the live backend for source accuracy, document match, retrieval relevance, answer quality, fallback behavior, hallucination risk, and timings.
 
-## 5. Keka RAG Pipeline
+**Deployment Layer**  
+Docker packages the backend with stored indexes. GitHub Actions validates, builds, publishes, deploys to Cloud Run, and checks `/health`.
 
-The Keka pipeline is built around local policy PDFs stored in `keka_data`.
+## Why This Architecture Is Strong
 
-```text
-Keka policy PDFs
-  -> load PDF pages
-  -> split into chunks
-  -> generate ONNX embeddings
-  -> store chunks in LangChain FAISS
-  -> retrieve using BM25 + MMR vector search
-  -> deduplicate chunks
-  -> rerank with ONNX reranker
-  -> generate grounded answer with Gemini
-```
+- Clear source routing keeps Hexnode, Keka, combined RAG, and workflow automation understandable.
+- Hybrid retrieval improves recall by combining semantic and lexical search.
+- ONNX embeddings and reranking keep retrieval quality local and predictable.
+- The workflow agent is isolated from normal RAG paths, so Jira actions stay explicit.
 
-### Retrieval design
+## Why It Is Practical For Product Integration
 
-The Keka retriever uses:
+- The frontend uses one `/ask` API contract for all assistant modes.
+- The backend returns sources and timings, which helps debugging and user trust.
+- Docker, GitHub Actions, and Cloud Run deployment are already represented in the repo.
 
-- **BM25** for policy names, exact terms, limits, and clauses.
-- **MMR vector retrieval** for semantic coverage and diversity.
-- **Deduplication** to remove repeated chunks.
-- **ONNX reranking** to select the final top documents.
+## Key Engineering Decisions
 
-This works well for HR policy questions because policy answers often require both semantic matching and exact document evidence.
-
----
-
-## 6. Routing, Optional Agents, and Combined Graph
-
-The default single-source flow is intentionally predictable. For Hexnode and Keka requests, the backend uses direct routing logic to decide whether the question is a normal search, a list request, or a process/setup-style request.
-
-### Hexnode routing
-
-Hexnode questions can use:
-
-```text
-search_hexnode_docs
-list_hexnode_topics
-get_hexnode_setup_steps
-```
-
-The direct Hexnode path is used by default. A LangGraph tool flow also exists and can be enabled as a fallback path through the `USE_HEXNODE_GRAPH_FALLBACK` environment flag.
-
-### Keka routing
-
-Keka questions can use:
-
-```text
-search_keka_policies
-list_keka_policies
-get_keka_process_steps
-```
-
-The direct Keka path is used by default. A LangChain agent also exists and can be enabled through the `USE_KEKA_AGENT_ROUTER` environment flag.
-
-### Combined source flow
-
-When the user selects `Both Sources`, the backend runs a combined LangGraph flow.
-
-```text
-Question
-  -> retrieve from Hexnode
-  -> retrieve from Keka
-  -> tag chunks by source
-  -> synthesize one answer with Gemini
-  -> return combined answer + source-specific evidence
-```
-
-This is useful when a question needs both product documentation and internal policy context.
-
-### Support Workflow flow
-
-When the user selects `Support Workflow`, the backend runs a LangGraph tool-calling agent. This path is intentionally selected by the UI instead of a router LLM to reduce latency and Gemini API usage.
-
-The workflow agent can use:
-
-```text
-troubleshoot_issue_tool
-create_jira_ticket_tool
-manage_jira_ticket_tool
-```
-
-The troubleshooting tool reuses the already-initialized Hexnode vector store. Jira actions are kept in a separate Jira client module so the tool layer stays small and readable.
-
-Delete requests are not executed immediately. The workflow adds a `delete-requested` label and a Jira comment. A team member approves deletion in Jira by adding `delete-approved`. The scheduled approval processor deletes only tickets with both labels.
-
----
-
-## 7. LLM Integration
-
-Gemini is used for answer generation. Model access is centralized in `backend/rag/gemini_models.py`.
-
-The backend defines a model stack:
-
-```text
-primary model
-  -> fallback model 1
-  -> fallback model 2
-  -> fallback model 3
-  -> fallback model 4
-```
-
-If a retryable model error happens, the backend tries the next model in the stack. This prevents one temporary model failure from immediately breaking the answer flow.
-
-The prompts follow a grounded pattern:
-
-```text
-Use only the provided context.
-If the answer is not present, say that directly.
-Do not invent policy details, links, or setup steps.
-```
-
-This keeps the assistant safer for product documentation and HR policy use cases.
-
-The Support Workflow agent also uses Gemini for tool selection. It does not use a separate router LLM; the user-selected source determines when the workflow agent is used.
-
----
-
-## 8. Core Request Flow
-
-```text
-1. User asks a question in the React UI.
-2. User selects a source: Hexnode, Keka, Both, or Support Workflow.
-3. Frontend sends POST /ask to FastAPI.
-4. Backend routes the request based on source.
-5. The selected retriever fetches candidate chunks.
-6. Hybrid retrieval improves recall.
-7. ONNX reranking improves final evidence precision.
-8. Gemini generates a grounded answer from the retrieved evidence.
-9. Backend returns answer and source chunks.
-10. Frontend displays the answer and supporting sources.
-```
-
-For `both` source mode, the retrieval step runs against both Hexnode and Keka, then the combined LangGraph flow synthesizes one response.
-
-For `workflow` source mode, the agent may call a troubleshooting tool or Jira tool, then returns a concise support response with tool metadata.
-
----
-
-## 9. Evaluation System
-
-The repository includes an evaluation folder with a question dataset and a script for testing the RAG API.
-
-```text
-evaluation
-  ├── dataset/questions.json
-  └── scripts/run_evaluation.py
-```
-
-The evaluation script calls the running backend at `http://localhost:8000/ask` and checks:
-
-- expected source selection
-- expected document matches
-- retrieval hit rate
-- retrieval relevance through expected keywords
-- answer keyword coverage
-- fallback behavior
-- simple hallucination-risk signals
-- workflow response checks
-- average backend timing values
-
-This is a practical evaluation setup. It does not prove perfect factual correctness, but it helps catch wrong routing, weak retrieval, missing evidence, and unsupported answers.
-
-Workflow cases use the same response-based evaluation style. They check that the workflow source responds with the expected support keywords without adding separate unit-style mocks to the evaluation script.
-
-Backend responses include a small `timings` object for practical latency checks, such as embedding time, retrieval time, reranking time, tool execution time, and total request time when those values apply.
-
----
-
-## 10. Deployment Architecture
-
-The backend is containerized with Docker.
-
-```text
-Dockerfile
-  -> Python 3.11 slim image
-  -> install backend serving requirements
-  -> copy backend code
-  -> copy storage files
-  -> run FastAPI with Uvicorn on port 8000
-```
-
-GitHub Actions is configured for:
-
-- frontend lint/build checks
-- backend Python syntax validation
-- backend Docker image build
-- Docker Hub publish on main branch pushes
-- Cloud Run deployment for the backend
-- deployed backend health check
-
-The React frontend is a separate Vite app. It can be deployed independently and configured with `VITE_API_URL` to call the backend.
-
-For the delete approval workflow, Cloud Scheduler calls the backend every 15 minutes:
-
-```text
-Cloud Scheduler
-  -> POST /workflow/process-delete-approvals
-  -> backend checks Jira labels
-  -> approved tickets are deleted
-```
-
-This avoids running an in-process scheduler inside Cloud Run and prevents duplicate background jobs when the backend scales.
-
----
-
-## 11. Why This Architecture Is Practical
-
-This architecture is useful because it keeps the system understandable and debuggable.
-
-- The frontend handles the user experience.
-- The backend owns routing, retrieval, reranking, and answer generation.
-- Hexnode and Keka pipelines stay separate instead of mixing all data blindly.
-- Hybrid retrieval improves recall across semantic and keyword-heavy questions.
-- ONNX reranking improves the final evidence sent to Gemini.
-- Combined-source mode supports questions that need both documentation and policy context.
-- Support Workflow handles Jira-backed support actions without mixing ticket operations into the RAG pipelines.
-- Cloud Scheduler handles recurring delete approval checks outside the API process.
-- Supporting chunks are returned to the UI, so answers can be inspected.
-- Evaluation checks the parts of a RAG system that usually fail first: routing, retrieval, evidence quality, and fallback behavior.
-
-The main design choice is reliability. The default single-source paths use direct routing and RAG, while optional agent/graph paths are available without making the whole system depend on them.
+- Use deterministic routing for normal RAG flows and LangGraph only where multi-step execution is needed.
+- Use separate Hexnode and Keka indexes because their data sources and chunking pipelines are different.
+- Use combined-source synthesis after retrieval instead of merging both knowledge bases into one undifferentiated index.
+- Use Jira delete approval labels instead of immediate destructive deletion.
