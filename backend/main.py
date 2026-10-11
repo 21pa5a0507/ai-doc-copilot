@@ -4,7 +4,7 @@ import logging
 import os
 import time
 
-from config.paths import BACKEND_LOG_FILE, ensure_storage_dirs
+from config.paths import ensure_storage_dirs
 
 
 ensure_storage_dirs()
@@ -13,7 +13,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     handlers=[
-        logging.FileHandler(BACKEND_LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
     ],
 )
 logger = logging.getLogger(__name__)

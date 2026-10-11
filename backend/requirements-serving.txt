@@ -21,3 +21,8 @@ requests==2.33.1
 onnxruntime==1.24.4
 tokenizers==0.22.2
 transformers==5.5.0
+
+# Imported by the support workflow's PostgreSQL device tools.
+fastmcp==3.4.6
+sqlalchemy[asyncio]==2.0.49
+asyncpg==0.31.0

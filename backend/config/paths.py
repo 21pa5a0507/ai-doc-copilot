@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 
@@ -37,6 +38,11 @@ TMP_DIR = STORAGE_DIR / "tmp"
 
 
 def ensure_storage_dirs() -> None:
+    # Lambda reads the bundled storage directories from a read-only image.
+    # No temporary directory is needed by the serving path.
+    if os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        return
+
     for path in (
         HEXNODE_RAW_DIR,
         HEXNODE_CACHE_DIR,

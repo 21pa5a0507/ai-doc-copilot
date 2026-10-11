@@ -1,0 +1,33 @@
+FROM python:3.11-slim
+
+# AWS publishes the adapter binary in this image; Lambda loads extensions here.
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0 /lambda-adapter /opt/extensions/lambda-adapter
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    AWS_LWA_PORT=8000 \
+    AWS_LWA_READINESS_CHECK_PATH=/health \
+    AWS_LWA_READINESS_CHECK_HEALTHY_STATUS=200 \
+    AWS_LWA_ASYNC_INIT=true \
+    HF_HOME=/tmp/huggingface \
+    HF_HUB_OFFLINE=1 \
+    TMPDIR=/tmp
+
+COPY backend/requirements-serving.txt ./backend/requirements-serving.txt
+
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r backend/requirements-serving.txt
+
+# Keep models and retrieval assets bundled at the paths used by the backend.
+COPY backend/ ./backend/
+COPY storage/ ./storage/
+
+EXPOSE 8000
+
+WORKDIR /app/backend
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
