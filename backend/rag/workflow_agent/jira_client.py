@@ -133,16 +133,17 @@ def close_jira_ticket(issue_key: str) -> dict:
     validate_jira_credentials(creds)
 
     transitions = get_jira_transitions(issue_key)
+    transition_name = os.getenv("JIRA_CLOSE_TRANSITION", "Close").strip()
 
     close_transition = None
     for transition in transitions:
-        if transition.get("name") == "Close":
+        if transition.get("name") == transition_name:
             close_transition = transition
             break
 
     if close_transition is None:
         available = [transition.get("name") for transition in transitions]
-        raise ValueError(f"Close transition not found. Available transitions: {available}")
+        raise ValueError(f"Jira transition {transition_name!r} not found. Available transitions: {available}")
 
     url = f"{creds['base_url'].rstrip('/')}/rest/api/3/issue/{issue_key}/transitions"
 
@@ -167,7 +168,7 @@ def close_jira_ticket(issue_key: str) -> dict:
     return {
         "issue_key": issue_key,
         "status": "closed",
-        "transition": "Close",
+        "transition": close_transition["name"],
     }
 
 

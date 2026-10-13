@@ -1,7 +1,19 @@
-name: Publish Lambda image to ECR
+name: Deploy Lambda via ECR
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "storage/**"
+      - "Dockerfile.lambda"
+      - ".dockerignore"
+      - ".github/workflows/lambda-publish.yml"
   workflow_dispatch:
+
+concurrency:
+  group: lambda-deploy-main
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -11,6 +23,8 @@ env:
   AWS_REGION: eu-north-1
   ECR_REGISTRY: 007188701903.dkr.ecr.eu-north-1.amazonaws.com
   ECR_REPOSITORY: ai-doc-copilot
+  LAMBDA_FUNCTION_NAME: ai-doc-copilot
+  HEALTH_URL: https://vo5jvdh4qlh2y5534xc2nuyqau0hujpa.lambda-url.eu-north-1.on.aws/health
 
 jobs:
   publish:
@@ -32,6 +46,12 @@ jobs:
           docker run --rm --network none --read-only --tmpfs /tmp \
             "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" python -m pip check
 
+      - name: Test Jira closing without external requests
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp \
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            python -m unittest test_jira_close -v
+
       - name: Authenticate to AWS using GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
@@ -46,3 +66,26 @@ jobs:
         run: |
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           echo "Image: $ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update Lambda to the new image
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION_NAME" \
+            --image-uri "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --query '{FunctionName:FunctionName,LastUpdateStatus:LastUpdateStatus}'
+          aws lambda wait function-updated-v2 --function-name "$LAMBDA_FUNCTION_NAME"
+
+      - name: Verify deployed knowledge bases
+        run: |
+          curl --fail --show-error --silent --retry 3 --retry-delay 5 \
+            --max-time 300 "$HEALTH_URL" -o /tmp/lambda-health.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path('/tmp/lambda-health.json').read_text())
+          print(json.dumps(health, indent=2))
+          assert health.get('status') == 'ok', health
+          assert all(health.get(key) is True for key in (
+              'hexnode_ready', 'keka_ready', 'combined_ready'
+          )), health
+          PY
