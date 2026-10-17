@@ -128,6 +128,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Authenticate to AWS using GitHub OIDC
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::007188701903:role/GitHubActionsAiDocECR
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: '007188701903'
+
+      - name: Authenticate adapter downloads from public ECR
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        # Public ECR authentication uses us-east-1; deployment stays in eu-north-1.
+        run: |
+          aws ecr-public get-login-password --region us-east-1 \
+            | docker login --username AWS --password-stdin public.ecr.aws
+
       - name: Build Lambda image
         run: |
           docker build --platform linux/amd64 -f Dockerfile.lambda \
@@ -181,14 +196,6 @@ jobs:
           assert health["hexnode_ready"] and health["keka_ready"] and health["combined_ready"], health
           PY
 
-
-      - name: Authenticate to AWS using GitHub OIDC
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          role-to-assume: arn:aws:iam::007188701903:role/GitHubActionsAiDocECR
-          aws-region: ${{ env.AWS_REGION }}
-          allowed-account-ids: '007188701903'
 
       - name: Login to private ECR
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
