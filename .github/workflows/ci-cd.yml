@@ -3,10 +3,21 @@ name: Hexnode CI/CD Pipeline
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deployment target
+        type: choice
+        options: [lambda, cloud-run]
+        default: lambda
+
+permissions:
+  contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   changes:
@@ -32,6 +43,7 @@ jobs:
               - "backend/**"
               - "storage/**"
               - "Dockerfile"
+              - "Dockerfile.lambda"
               - ".dockerignore"
               - ".gitignore"
               - ".github/workflows/ci-cd.yml"
@@ -40,7 +52,7 @@ jobs:
     name: Check frontend
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true'
 
     defaults:
       run:
@@ -70,7 +82,7 @@ jobs:
     name: Validate backend
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.backend == 'true'
 
     steps:
       - name: Checkout code
@@ -96,28 +108,131 @@ jobs:
               ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
           PY
 
-  backend-docker-check:
-    name: Check backend Docker image
+  lambda:
+    name: Check and deploy Lambda container
     runs-on: ubuntu-latest
-    needs:
-      - changes
-      - backend-validate
-    if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
+    timeout-minutes: 30
+    needs: [changes, backend-validate]
+    if: (github.event_name == 'workflow_dispatch' && inputs.target == 'lambda') || (github.event_name != 'workflow_dispatch' && needs.changes.outputs.backend == 'true')
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: eu-north-1
+      ECR_REGISTRY: 007188701903.dkr.ecr.eu-north-1.amazonaws.com
+      ECR_REPOSITORY: ai-doc-copilot
+      LAMBDA_FUNCTION_NAME: ai-doc-copilot
+      HEALTH_URL: https://vo5jvdh4qlh2y5534xc2nuyqau0hujpa.lambda-url.eu-north-1.on.aws/health
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build backend Docker image
-        run: docker build -t ai-doc-copilot:${{ github.sha }} .
+      - name: Build Lambda image
+        run: |
+          docker build --platform linux/amd64 -f Dockerfile.lambda \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" .
+
+      - name: Check installed dependencies
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp \
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" python -m pip check
+
+      - name: Report uncompressed image size
+        run: |
+          docker image inspect "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --format 'Image size in bytes = {{.Size}}'
+
+      - name: Test Jira closing without external requests
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp \
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            python -m unittest test_jira_close -v
+
+      - name: Check startup using bundled assets
+        timeout-minutes: 5
+        # The placeholder only constructs Gemini clients. Networking is disabled
+        # so this check cannot call Gemini, Jira, or PostgreSQL.
+        run: |
+          docker run --rm -i --network none --read-only --tmpfs /tmp \
+            --memory 2g --cpus 2 \
+            -e AWS_LAMBDA_FUNCTION_NAME=lambda-container-check \
+            -e GOOGLE_API_KEY=not-a-real-key-for-offline-startup \
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" python - <<'PY'
+          import asyncio
+          import json
+          import resource
+          import time
+
+          started = time.perf_counter()
+          import main
+          imported = time.perf_counter()
+          asyncio.run(main.startup_event())
+          ready = time.perf_counter()
+          health = main.health_check()
+          print(json.dumps({
+              "health": health,
+              "import_seconds": round(imported - started, 3),
+              "initialization_seconds": round(ready - imported, 3),
+              "total_seconds": round(ready - started, 3),
+              "peak_process_memory_mib": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+          }, indent=2))
+          assert health["status"] == "ok", health
+          assert health["hexnode_ready"] and health["keka_ready"] and health["combined_ready"], health
+          PY
+
+
+      - name: Authenticate to AWS using GitHub OIDC
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::007188701903:role/GitHubActionsAiDocECR
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: '007188701903'
+
+      - name: Login to private ECR
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push image to ECR
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          echo "Image: $ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update Lambda to the new image
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION_NAME" \
+            --image-uri "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --query '{FunctionName:FunctionName,LastUpdateStatus:LastUpdateStatus}'
+          aws lambda wait function-updated-v2 --function-name "$LAMBDA_FUNCTION_NAME"
+
+      - name: Verify deployed knowledge bases
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          curl --fail --show-error --silent --retry 3 --retry-delay 5 \
+            --max-time 300 "$HEALTH_URL" -o /tmp/lambda-health.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path('/tmp/lambda-health.json').read_text())
+          print(json.dumps(health, indent=2))
+          assert health.get('status') == 'ok', health
+          assert all(health.get(key) is True for key in (
+              'hexnode_ready', 'keka_ready', 'combined_ready'
+          )), health
+          PY
+
 
   backend-docker-publish:
-    name: Publish backend image
+    name: Publish Cloud Run image (manual)
     runs-on: ubuntu-latest
     needs:
       - changes
       - backend-validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.backend == 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'cloud-run' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
@@ -139,12 +254,12 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/ai-doc-copilot:latest
 
   deploy-backend:
-    name: Deploy backend
+    name: Deploy Cloud Run (manual)
     runs-on: ubuntu-latest
     needs:
       - changes
       - backend-docker-publish
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.backend == 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'cloud-run' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
